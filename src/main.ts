@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GameConfig, GameMode, OGSnowGlobalState, PlayerInput } from './types';
+import { GameConfig, GameMode, OGSnowGlobalState, PlayerInput, PlayerState } from './types';
 import { DEFAULT_GAME_CONFIG } from './config';
 import { TerrainManager } from './terrain/TerrainManager';
 import { PhysicsEngine } from './physics/PhysicsEngine';
@@ -28,6 +28,11 @@ export class GameApp {
   public activeDropZoneId: string;
   public frameCount: number = 0;
   public elapsedSeconds: number = 0;
+
+  // [ADR-0006 / PR-1 B2, M4] Initialization readiness and simulation pause state
+  private isReady: boolean = false;
+  private initPromise: Promise<void> | null = null;
+  private isSimulationPaused: boolean = false;
 
   private animationFrameId: number | null = null;
   private onKeyDownBound: (e: KeyboardEvent) => void;
@@ -118,35 +123,49 @@ export class GameApp {
     this.registerGlobalBridge();
   }
 
+  // [ADR-0006 / PR-1 B2] Idempotent init flow avoiding drop-in overwrite
   public async init(): Promise<void> {
-    const defaultDz =
-      this.config.dropZones.find((dz) => dz.id === this.activeDropZoneId) ??
-      this.config.dropZones[0];
-
-    // Load .glb terrain model
-    try {
-      await this.terrain.initialize('./assets/whistler-peak.glb');
-    } catch {
-      // TerrainManager automatically handles in-memory fallback
+    if (this.initPromise) {
+      return this.initPromise;
     }
 
-    // Setup initial player position at default drop zone
-    this.physics.resetAtDropZone(defaultDz);
-    const playerState = this.physics.getState();
+    this.initPromise = (async () => {
+      const defaultDz =
+        this.config.dropZones.find((dz) => dz.id === this.activeDropZoneId) ??
+        this.config.dropZones[0];
 
-    this.character.update(playerState, 0);
-    this.camera.update(playerState, 0);
-    const audioState = this.audio.update(playerState, 0);
+      // Load .glb terrain model
+      try {
+        await this.terrain.initialize('./assets/whistler-peak.glb');
+      } catch (err) {
+        console.warn('Failed to load terrain GLB during init:', err);
+      }
 
-    if (this.hud) {
-      this.hud.setMode('menu', defaultDz.id);
-      this.hud.update(playerState, audioState);
-    }
+      // [ADR-0006 / PR-1 B2] Only reset player to defaultDz and HUD to menu if mode is still menu
+      // (if dropIn was already called while GLB was loading, do not overwrite mode back to 'menu')
+      if (this.mode === 'menu') {
+        this.physics.resetAtDropZone(defaultDz);
+        const playerState = this.physics.getState();
 
-    this.publishState();
-    this.startLoop();
+        this.character.update(playerState, 0);
+        this.camera.update(playerState, 0);
+        const audioState = this.audio.update(playerState, 0);
+
+        if (this.hud) {
+          this.hud.setMode('menu', defaultDz.id);
+          this.hud.update(playerState, audioState);
+        }
+      }
+
+      this.isReady = true;
+      this.syncGlobalState();
+      this.startLoop();
+    })();
+
+    return this.initPromise;
   }
 
+  // [ADR-0006 / PR-1 B2] Idempotent drop-in flow with camera snap and state readiness
   public async dropIn(dropZoneId: string): Promise<void> {
     const dropZone =
       this.config.dropZones.find((dz) => dz.id === dropZoneId) ?? this.config.dropZones[0];
@@ -154,19 +173,18 @@ export class GameApp {
     this.activeDropZoneId = dropZone.id;
     this.mode = 'riding';
 
-    if (!this.terrain.terrainData.glbLoaded) {
-      try {
-        await this.terrain.initialize('./assets/whistler-peak.glb');
-      } catch {
-        // Handled internally
-      }
+    try {
+      await this.terrain.initialize('./assets/whistler-peak.glb');
+    } catch (err) {
+      console.warn('Failed to load terrain GLB during dropIn:', err);
     }
 
     this.physics.resetAtDropZone(dropZone);
     const playerState = this.physics.getState();
 
     this.character.update(playerState, 0);
-    this.camera.update(playerState, 0);
+    // [ADR-0006 / PR-1 B2] Snap camera immediately on drop-in with snap dt = 1.0
+    this.camera.update(playerState, 1.0);
 
     try {
       await this.audio.init();
@@ -181,15 +199,27 @@ export class GameApp {
       this.hud.update(playerState, audioState);
     }
 
-    this.publishState();
+    this.isReady = true;
+    this.syncGlobalState();
   }
 
+  // [ADR-0006 / PR-1 M3] Menu audio ducking immediately on returnToMenu
   public returnToMenu(): void {
     this.mode = 'menu';
+    const menuPlayerState: PlayerState = {
+      ...this.physics.getState(),
+      speedMs: 0,
+      speedKmh: 0,
+      carveIntensity: 0,
+      isGrounded: true,
+      isCrashed: false,
+    };
+    const audioState = this.audio.update(menuPlayerState, 0);
     if (this.hud) {
       this.hud.setMode('menu', this.activeDropZoneId);
+      this.hud.update(menuPlayerState, audioState);
     }
-    this.publishState();
+    this.syncGlobalState();
   }
 
   public toggleMute(): void {
@@ -200,7 +230,7 @@ export class GameApp {
     if (this.hud) {
       this.hud.update(playerState, audioState);
     }
-    this.publishState();
+    this.syncGlobalState();
   }
 
   public triggerCrashForTest(): void {
@@ -211,44 +241,64 @@ export class GameApp {
     if (this.hud) {
       this.hud.update(playerState, audioState);
     }
-    this.publishState();
+    this.syncGlobalState();
   }
 
+  // [ADR-0006 / PR-1 M4] Deterministic stepping with single-step override restore
   public stepSimulation(dtSeconds: number, overrideInput?: Partial<PlayerInput>): void {
+    const prevOverride =
+      overrideInput !== undefined
+        ? (this.controller as unknown as { override: Partial<PlayerInput> | null }).override
+          ? { ...(this.controller as unknown as { override: Partial<PlayerInput> | null }).override }
+          : null
+        : null;
+
     if (overrideInput !== undefined) {
       this.controller.setOverride(overrideInput);
     }
 
-    const input = this.controller.getInput();
+    try {
+      const input = this.controller.getInput();
 
-    if (input.reset) {
-      const currentDz =
-        this.config.dropZones.find((dz) => dz.id === this.activeDropZoneId) ??
-        this.config.dropZones[0];
-      this.physics.resetAtDropZone(currentDz);
-      this.controller.clearResetFlag();
-    } else {
-      this.physics.step(dtSeconds, input);
+      if (input.reset) {
+        const currentDz =
+          this.config.dropZones.find((dz) => dz.id === this.activeDropZoneId) ??
+          this.config.dropZones[0];
+        this.physics.resetAtDropZone(currentDz);
+        this.controller.clearResetFlag();
+      } else {
+        this.physics.step(dtSeconds, input);
+      }
+
+      const playerState = this.physics.getState();
+      this.character.update(playerState, dtSeconds);
+      this.camera.update(playerState, dtSeconds);
+      const audioState = this.audio.update(playerState, dtSeconds);
+
+      if (this.hud) {
+        this.hud.update(playerState, audioState);
+      }
+
+      if (this.renderer) {
+        this.renderer.render(this.scene, this.camera.camera);
+      }
+
+      this.frameCount++;
+      this.elapsedSeconds += dtSeconds;
+      this.syncGlobalState();
+    } finally {
+      if (overrideInput !== undefined) {
+        this.controller.setOverride(prevOverride);
+      }
     }
+  }
 
-    const playerState = this.physics.getState();
-    this.character.update(playerState, dtSeconds);
-    this.camera.update(playerState, dtSeconds);
-    const audioState = this.audio.update(playerState, dtSeconds);
-
-    if (this.hud) {
-      this.hud.update(playerState, audioState);
-    }
-
-    if (this.renderer) {
-      this.renderer.render(this.scene, this.camera.camera);
-    }
-
-    this.frameCount++;
-    this.elapsedSeconds += dtSeconds;
+  // [ADR-0006 / PR-1 B2] Global state synchronizer
+  public syncGlobalState(): void {
     this.publishState();
   }
 
+  // [ADR-0006 / PR-1 M7] Include ready and webglActive in global state telemetry
   public publishState(): void {
     if (typeof window === 'undefined') return;
 
@@ -256,12 +306,14 @@ export class GameApp {
     const audioState = this.audio.getState();
     const cameraState = this.camera.getState();
 
-    const state: OGSnowGlobalState = {
+    const state = {
       mode: this.mode,
       mountainName: this.config.mountainName,
       activeDropZoneId: this.activeDropZoneId,
       frameCount: this.frameCount,
       elapsedSeconds: this.elapsedSeconds,
+      ready: this.isReady,
+      webglActive: this.renderer !== null,
       player: playerState,
       audio: audioState,
       camera: cameraState,
@@ -275,7 +327,7 @@ export class GameApp {
       },
     };
 
-    window.__OGSNOW_STATE__ = state;
+    window.__OGSNOW_STATE__ = state as unknown as OGSnowGlobalState;
   }
 
   public dispose(): void {
@@ -301,7 +353,8 @@ export class GameApp {
   private registerGlobalBridge(): void {
     if (typeof window === 'undefined') return;
 
-    window.__OGSNOW_APP__ = {
+    // [ADR-0006 / PR-1 M4] Expose setPaused on window.__OGSNOW_APP__ for deterministic E2E test stepping
+    (window as unknown as { __OGSNOW_APP__: Record<string, unknown> }).__OGSNOW_APP__ = {
       dropIn: (dropZoneId: string) => {
         this.dropIn(dropZoneId);
       },
@@ -317,9 +370,43 @@ export class GameApp {
       triggerCrashForTest: () => {
         this.triggerCrashForTest();
       },
+      setPaused: (paused: boolean) => {
+        this.isSimulationPaused = paused;
+      },
     };
 
-    this.publishState();
+    this.syncGlobalState();
+  }
+
+  // [ADR-0006 / PR-1 M3, M4] Discrete simulation tick called by rAF loop
+  public tick(dtSeconds: number): void {
+    if (this.mode === 'riding' && !this.isSimulationPaused) {
+      this.stepSimulation(dtSeconds);
+    } else {
+      this.frameCount++;
+      this.elapsedSeconds += dtSeconds;
+
+      if (this.mode === 'menu') {
+        // [ADR-0006 / PR-1 M3] Keep audio ducked in menu tick so drums and bass smoothly duck back to ['pad']
+        const menuPlayerState: PlayerState = {
+          ...this.physics.getState(),
+          speedMs: 0,
+          speedKmh: 0,
+          carveIntensity: 0,
+          isGrounded: true,
+          isCrashed: false,
+        };
+        const audioState = this.audio.update(menuPlayerState, dtSeconds);
+        if (this.hud) {
+          this.hud.update(menuPlayerState, audioState);
+        }
+      }
+
+      if (this.renderer) {
+        this.renderer.render(this.scene, this.camera.camera);
+      }
+      this.syncGlobalState();
+    }
   }
 
   private startLoop(): void {
@@ -334,17 +421,7 @@ export class GameApp {
       const dt = Math.min((timestamp - lastTimestamp) / 1000, 0.05);
       lastTimestamp = timestamp;
 
-      if (this.mode === 'riding') {
-        this.stepSimulation(dt);
-      } else {
-        // In menu, render background mountain view
-        this.frameCount++;
-        this.elapsedSeconds += dt;
-        if (this.renderer) {
-          this.renderer.render(this.scene, this.camera.camera);
-        }
-        this.publishState();
-      }
+      this.tick(dt);
     };
 
     this.animationFrameId = requestAnimationFrame(frame);

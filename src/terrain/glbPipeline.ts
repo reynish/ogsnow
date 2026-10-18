@@ -2,9 +2,11 @@ import * as THREE from 'three';
 import { TerrainData, TerrainObstacle, DropZone } from '../types';
 import { DEFAULT_GAME_CONFIG } from '../config';
 
-// Polyfill FileReader for Node.js / Vitest environments if missing
+// [PR-1 Security/B3]: Guard FileReader polyfill so it only installs in Node.js / Vitest environments
+// where window is undefined and FileReader is absent. It must never run or mutate globalThis
+// in browser runtime environments to prevent prototype pollution or unintended side effects.
 function ensureFileReaderPolyfill(): void {
-  if (typeof globalThis.FileReader === 'undefined') {
+  if (typeof window === 'undefined' && typeof globalThis.FileReader === 'undefined') {
     class PolyfillFileReader {
       public result: any = null;
       public onloadend: (() => void) | null = null;
@@ -58,12 +60,13 @@ export function generateWhistlerDEM(
   const totalVertices = (segmentsZ + 1) * stride;
   const heights = new Float32Array(totalVertices);
 
-  // Real Whistler Peak profile control points:
-  // Summit ridge (z = -600) -> Peak Express Summit (z = -520) -> Harmony Ridge (z = -260) ->
-  // Glacier Creek Chute (z = -40) -> Lower Mountain (z = 250) -> Base (z = 600)
+  // Real Whistler Peak profile control points (M11):
+  // Summit ridge (z = -600, 2182m) -> Peak Express Summit (z = -520, ~2130m) -> Harmony Ridge (z = -260, 1940m) ->
+  // Glacier Creek Chute (z = -40, 1780m) -> Lower Mountain (z = 250, 1640m) -> Base (z = 600, 1520m)
+  // Max elevation never exceeds 2182m (Whistler Peak summit).
   const pts = [
-    { z: -600, h: 2240 },
-    { z: -520, h: 2182 },
+    { z: -600, h: 2182 },
+    { z: -520, h: 2130 },
     { z: -260, h: 1940 },
     { z: -40, h: 1780 },
     { z: 250, h: 1640 },
@@ -104,12 +107,15 @@ export function generateWhistlerDEM(
     const z = -length / 2 + (r / segmentsZ) * length;
     const baseH = getBaseHeight(z);
 
+    // Taper bowl & rollers near summit ridge so maxElevation never exceeds 2182m summit
+    const summitTaper = Math.max(0, Math.min(1, (z - (-length / 2)) / 120));
+
     for (let c = 0; c <= segmentsX; c++) {
       const x = -width / 2 + (c / segmentsX) * width;
       const xNorm = x / (width / 2);
 
-      // Natural bowl: higher ridges on lateral boundaries
-      const bowl = 18.0 * (xNorm * xNorm);
+      // Natural bowl: higher ridges on lateral boundaries, tapering at summit ridge
+      const bowl = 18.0 * (xNorm * xNorm) * summitTaper;
 
       // Natural terrain rollers, damped around drop zone spawn points
       let rollerWeight = 1.0;
@@ -123,9 +129,10 @@ export function generateWhistlerDEM(
       const rolls =
         (2.0 * Math.sin((2 * Math.PI * z) / 160) * Math.cos((2 * Math.PI * x) / 110) +
           1.0 * Math.sin((2 * Math.PI * z) / 60) * Math.cos((2 * Math.PI * x) / 50)) *
-        rollerWeight;
+        rollerWeight *
+        summitTaper;
 
-      const h = baseH + bowl + rolls;
+      const h = Math.min(2182.0, baseH + bowl + rolls);
       heights[r * stride + c] = h;
 
       if (h < minElevation) minElevation = h;
@@ -164,20 +171,28 @@ export function generateWhistlerDEM(
     },
   }));
 
-  // Generate deterministic obstacles respecting 25m clearance around each drop zone
+  // Generate deterministic obstacles respecting 28m clearance and downhill fall-line corridor
   const rand = createSeededRandom(42);
   const obstacles: TerrainObstacle[] = [];
   let attempts = 0;
 
-  while (obstacles.length < 110 && attempts < 1000) {
+  while (obstacles.length < 110 && attempts < 2000) {
     attempts++;
     const ox = (rand() - 0.5) * (width * 0.88);
     const oz = -length / 2 + 30 + rand() * (length - 60);
 
-    // Keep minimum 25m clearance around all drop zones
+    // Keep minimum 28m clearance around all drop zones AND clear downhill fall-line corridor
     let safe = true;
     for (const dz of dropZones) {
-      if (Math.hypot(ox - dz.spawnPosition.x, oz - dz.spawnPosition.z) < 25.0) {
+      if (Math.hypot(ox - dz.spawnPosition.x, oz - dz.spawnPosition.z) < 28.0) {
+        safe = false;
+        break;
+      }
+      if (
+        Math.abs(ox - dz.spawnPosition.x) < 18 &&
+        oz >= dz.spawnPosition.z - 10 &&
+        oz <= dz.spawnPosition.z + 100
+      ) {
         safe = false;
         break;
       }
@@ -195,7 +210,7 @@ export function generateWhistlerDEM(
     let radius: number;
     let height: number;
 
-    // Above tree line (z < -300), only rocks and cliffs spawn
+    // Below tree line (oz > -280), trees can spawn (65% chance)
     if (oz > -280 && r < 0.65) {
       type = 'tree';
       radius = 1.2;
@@ -327,6 +342,20 @@ export function buildTerrainMeshFromDEM(data: TerrainData): THREE.Mesh {
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'whistler_terrain_mesh';
+  // Attach terrain metadata so glTF extras carries mountain metadata [Fix M10]
+  mesh.userData = {
+    mountainId: data.mountainId,
+    mountainName: data.mountainName,
+    region: data.region,
+    width: data.width,
+    length: data.length,
+    segmentsX: data.segmentsX,
+    segmentsZ: data.segmentsZ,
+    minElevation: data.minElevation,
+    maxElevation: data.maxElevation,
+    dropZones: data.dropZones,
+    obstacles: data.obstacles,
+  };
   return mesh;
 }
 
@@ -374,6 +403,31 @@ export async function parseTerrainFromGLBBuffer(buffer: ArrayBuffer): Promise<TH
       buffer,
       '',
       (gltf) => {
+        // [PR-1 B3: GLTF 2.0 spec does not serialize Three.js material.flatShading flag]
+        // Standard glTF 2.0 material specifications do not include a property for Three.js
+        // flatShading. When importing from GLB, GLTFLoader constructs MeshStandardMaterial
+        // with flatShading: false by default. To strictly enforce ADR-0002 Rule 3, traverse
+        // all child meshes in the loaded scene, set material.flatShading = true,
+        // material.vertexColors = true, and material.needsUpdate = true, while ensuring
+        // geometry vertex normals are properly computed for low-poly faceted rendering.
+        gltf.scene.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            const m = child as THREE.Mesh;
+            if (m.geometry) {
+              m.geometry.computeVertexNormals();
+            }
+            if (m.material) {
+              const materials = Array.isArray(m.material) ? m.material : [m.material];
+              for (const mat of materials) {
+                if (mat instanceof THREE.MeshStandardMaterial || 'flatShading' in mat) {
+                  (mat as any).flatShading = true;
+                  (mat as any).vertexColors = true;
+                  mat.needsUpdate = true;
+                }
+              }
+            }
+          }
+        });
         resolve(gltf.scene);
       },
       (error) => {

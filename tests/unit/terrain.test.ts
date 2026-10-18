@@ -27,10 +27,24 @@ describe('Terrain & GLB Pipeline', () => {
       expect(data.heights.length).toBe(expectedVertexCount);
       expect(data.dropZones.length).toBe(3);
       expect(data.obstacles.length).toBeGreaterThan(50);
+
+      // M11: Whistler Peak summit elevation ceiling <= 2182m
+      expect(data.maxElevation).toBeLessThanOrEqual(2182);
+
+      // M11: All drop zones have zero obstacles within downhill fall-line spawn corridor
+      for (const dz of data.dropZones) {
+        const corridorObstacles = data.obstacles.filter(
+          (obs) =>
+            Math.abs(obs.position.x - dz.spawnPosition.x) < 18 &&
+            obs.position.z >= dz.spawnPosition.z &&
+            obs.position.z <= dz.spawnPosition.z + 100
+        );
+        expect(corridorObstacles).toHaveLength(0);
+      }
     });
 
     it('exhibits realistic downhill elevation profile from summit to base', () => {
-      const summitHeight = terrainManager.getHeightAt(0, -520);
+      const summitHeight = terrainManager.getHeightAt(0, -600);
       const midHeight = terrainManager.getHeightAt(0, 0);
       const baseHeight = terrainManager.getHeightAt(0, 580);
 
@@ -216,6 +230,24 @@ describe('Terrain & GLB Pipeline', () => {
 
       expect(group).toBeInstanceOf(THREE.Group);
       expect(group.children.length).toBeGreaterThan(0);
+
+      // B3 & M10: every parsed THREE.Mesh has flatShading === true, vertexColors === true, and userData metadata preserved
+      let meshFound = false;
+      group.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          meshFound = true;
+          const m = child as THREE.Mesh;
+          const mat = m.material as THREE.MeshStandardMaterial;
+          expect(mat.flatShading).toBe(true);
+          expect(mat.vertexColors).toBe(true);
+          expect(m.userData.mountainId).toBe('whistler-peak');
+          expect(m.userData.minElevation).toBeDefined();
+          expect(m.userData.maxElevation).toBeLessThanOrEqual(2182);
+          expect(m.userData.dropZones).toHaveLength(3);
+          expect(m.userData.obstacles.length).toBeGreaterThan(0);
+        }
+      });
+      expect(meshFound).toBe(true);
     });
 
     it('initializes TerrainManager setting glbLoaded=true and populating rootGroup', async () => {
@@ -229,6 +261,17 @@ describe('Terrain & GLB Pipeline', () => {
       const names = terrainManager.rootGroup.children.map((c) => c.name);
       expect(names).toContain('terrain_mesh_group');
       expect(names).toContain('terrain_obstacles');
+    });
+
+    it('concurrent initialize() calls are idempotent and create exactly one mesh group and one obstacles group (B2)', async () => {
+      await Promise.all([terrainManager.initialize(), terrainManager.initialize()]);
+
+      expect(terrainManager.terrainData.glbLoaded).toBe(true);
+      const meshGroups = terrainManager.rootGroup.children.filter((c) => c.name === 'terrain_mesh_group');
+      const obstacleGroups = terrainManager.rootGroup.children.filter((c) => c.name === 'terrain_obstacles');
+
+      expect(meshGroups).toHaveLength(1);
+      expect(obstacleGroups).toHaveLength(1);
     });
   });
 });

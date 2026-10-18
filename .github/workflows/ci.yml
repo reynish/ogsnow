@@ -10,12 +10,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: 'pages'
-  cancel-in-progress: false
 
 jobs:
   build-and-test:
@@ -40,6 +34,9 @@ jobs:
 
       - name: Build project
         run: npm run build
+
+      - name: Verify deterministic GLB asset
+        run: npx tsx scripts/generate-glb.ts && git diff --exit-code public/assets/whistler-peak.glb
 
       - name: Run unit and integration tests
         run: npm test
@@ -73,6 +70,13 @@ jobs:
     needs: build-and-test
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: 'pages'
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

@@ -4,6 +4,7 @@ export class PlayerController {
   private target: Window | HTMLElement | null = null;
   private keyStates: Map<string, boolean> = new Map();
   private override: Partial<PlayerInput> | null = null;
+  private spaceJumpConsumed: boolean = false;
   private onKeyDownBound: (e: KeyboardEvent) => void;
   private onKeyUpBound: (e: KeyboardEvent) => void;
   private onBlurBound: () => void;
@@ -41,7 +42,16 @@ export class PlayerController {
     const carve = carvePressed ? 1.0 : 0.0;
 
     const tuck = this.isPressed('KeyW') || this.isPressed('ArrowUp');
-    const jump = this.isPressed('Space');
+
+    // [PR-1 M1/M2: Edge-triggered Space jump prevents bunny-hop repeat while holding key]
+    let jump = false;
+    if (this.isPressed('Space')) {
+      if (!this.spaceJumpConsumed) {
+        jump = true;
+        this.spaceJumpConsumed = true;
+      }
+    }
+
     const reset = this.isPressed('KeyR');
 
     let input: PlayerInput = { steer, carve, tuck, jump, reset };
@@ -98,20 +108,44 @@ export class PlayerController {
       this.target.removeEventListener('blur', this.onBlurBound as EventListener);
     }
     this.keyStates.clear();
+    this.spaceJumpConsumed = false;
     this.override = null;
     this.target = null;
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
+    // [PR-1 M1/M2: Call preventDefault on game keys so Space never activates focused HUD buttons]
+    if (
+      e.code === 'Space' ||
+      e.code === 'ArrowUp' ||
+      e.code === 'ArrowDown' ||
+      e.code === 'ArrowLeft' ||
+      e.code === 'ArrowRight'
+    ) {
+      if (typeof e.preventDefault === 'function') {
+        e.preventDefault();
+      }
+    }
+
+    if (e.code === 'Space') {
+      if (!this.isPressed('Space')) {
+        this.spaceJumpConsumed = false;
+      }
+    }
+
     this.keyStates.set(e.code, true);
   }
 
   private handleKeyUp(e: KeyboardEvent): void {
+    if (e.code === 'Space') {
+      this.spaceJumpConsumed = false;
+    }
     this.keyStates.set(e.code, false);
   }
 
   private handleBlur(): void {
     this.keyStates.clear();
+    this.spaceJumpConsumed = false;
   }
 
   private isPressed(code: string): boolean {

@@ -11,6 +11,7 @@ export class TerrainManager {
   public readonly terrainData: TerrainData;
   public readonly rootGroup: THREE.Group;
   public glbByteLength: number = 0;
+  private initPromise: Promise<void> | null = null;
 
   constructor(customData?: TerrainData) {
     this.terrainData = customData ?? generateWhistlerDEM();
@@ -18,43 +19,63 @@ export class TerrainManager {
     this.rootGroup.name = 'terrain_root';
   }
 
+  // [PR-1 B2: Idempotent async initialization guard]
+  // Caches in-flight initialization promise so concurrent or repeated calls to initialize()
+  // never spawn duplicate fetches, duplicate GLB exports, or duplicate scene objects.
+  // Clears any preexisting 'terrain_mesh_group' or 'terrain_obstacles' from rootGroup before adding.
   public async initialize(glbUrl: string = './assets/whistler-peak.glb'): Promise<void> {
-    let glbBuffer: ArrayBuffer | null = null;
+    if (this.initPromise) {
+      return this.initPromise;
+    }
 
-    if (glbUrl && typeof fetch === 'function') {
-      try {
-        const response = await fetch(glbUrl);
-        if (response.ok) {
-          glbBuffer = await response.arrayBuffer();
+    this.initPromise = (async () => {
+      // Remove any prior terrain meshes and obstacles before loading
+      for (let i = this.rootGroup.children.length - 1; i >= 0; i--) {
+        const child = this.rootGroup.children[i];
+        if (child.name === 'terrain_mesh_group' || child.name === 'terrain_obstacles') {
+          this.rootGroup.remove(child);
         }
-      } catch {
-        // Fallback to in-memory generation if fetch fails (e.g. Node / Vitest)
       }
-    }
 
-    if (!glbBuffer) {
-      const terrainMesh = buildTerrainMeshFromDEM(this.terrainData);
-      glbBuffer = await exportTerrainToGLBBuffer(terrainMesh);
-    }
+      let glbBuffer: ArrayBuffer | null = null;
 
-    if (glbBuffer.byteLength < 12) {
-      throw new Error(`GLB buffer too small: ${glbBuffer.byteLength} bytes`);
-    }
+      if (glbUrl && typeof fetch === 'function') {
+        try {
+          const response = await fetch(glbUrl);
+          if (response.ok) {
+            glbBuffer = await response.arrayBuffer();
+          }
+        } catch {
+          // Fallback to in-memory generation if fetch fails (e.g. Node / Vitest)
+        }
+      }
 
-    const view = new DataView(glbBuffer);
-    const magic = view.getUint32(0, true);
-    if (magic !== 0x46546c67) {
-      throw new Error(`Invalid glTF binary magic header: 0x${magic.toString(16)} (expected 0x46546c67)`);
-    }
+      if (!glbBuffer) {
+        const terrainMesh = buildTerrainMeshFromDEM(this.terrainData);
+        glbBuffer = await exportTerrainToGLBBuffer(terrainMesh);
+      }
 
-    this.glbByteLength = glbBuffer.byteLength;
-    const parsedScene = await parseTerrainFromGLBBuffer(glbBuffer);
-    parsedScene.name = 'terrain_mesh_group';
-    this.rootGroup.add(parsedScene);
-    this.terrainData.glbLoaded = true;
+      if (glbBuffer.byteLength < 12) {
+        throw new Error(`GLB buffer too small: ${glbBuffer.byteLength} bytes`);
+      }
 
-    // Attach low-poly obstacle meshes to rootGroup
-    this.buildObstacleMeshes();
+      const view = new DataView(glbBuffer);
+      const magic = view.getUint32(0, true);
+      if (magic !== 0x46546c67) {
+        throw new Error(`Invalid glTF binary magic header: 0x${magic.toString(16)} (expected 0x46546c67)`);
+      }
+
+      this.glbByteLength = glbBuffer.byteLength;
+      const parsedScene = await parseTerrainFromGLBBuffer(glbBuffer);
+      parsedScene.name = 'terrain_mesh_group';
+      this.rootGroup.add(parsedScene);
+      this.terrainData.glbLoaded = true;
+
+      // Attach low-poly obstacle meshes to rootGroup
+      this.buildObstacleMeshes();
+    })();
+
+    return this.initPromise;
   }
 
   public getHeightAt(x: number, z: number): number {
@@ -104,19 +125,10 @@ export class TerrainManager {
   }
 
   public getSlopePitchAt(x: number, z: number, headingRad: number): number {
-    const eps = 0.5;
-    const hL = this.getHeightAt(x - eps, z);
-    const hR = this.getHeightAt(x + eps, z);
-    const hD = this.getHeightAt(x, z - eps);
-    const hU = this.getHeightAt(x, z + eps);
-
-    const dhdx = (hR - hL) / (2 * eps);
-    const dhdz = (hU - hD) / (2 * eps);
-
+    const normal = this.getNormalAt(x, z);
     const dirX = Math.sin(headingRad);
     const dirZ = Math.cos(headingRad);
-
-    const dh = dhdx * dirX + dhdz * dirZ;
+    const dh = -(normal.x * dirX + normal.z * dirZ) / (normal.y || 1e-6);
     return Math.atan(-dh);
   }
 
@@ -141,6 +153,13 @@ export class TerrainManager {
   }
 
   private buildObstacleMeshes(): void {
+    // Clear any prior obstacle group
+    for (let i = this.rootGroup.children.length - 1; i >= 0; i--) {
+      if (this.rootGroup.children[i].name === 'terrain_obstacles') {
+        this.rootGroup.remove(this.rootGroup.children[i]);
+      }
+    }
+
     const obstacleGroup = new THREE.Group();
     obstacleGroup.name = 'terrain_obstacles';
 
@@ -170,37 +189,75 @@ export class TerrainManager {
       roughness: 0.95,
     });
 
-    for (const obs of this.terrainData.obstacles) {
-      if (obs.type === 'tree') {
-        const treeGroup = new THREE.Group();
-        treeGroup.position.set(obs.position.x, obs.position.y, obs.position.z);
+    const dummy = new THREE.Object3D();
 
-        const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-        trunk.position.y = 1.0;
-        treeGroup.add(trunk);
+    const trees = this.terrainData.obstacles.filter((o) => o.type === 'tree');
+    const rocks = this.terrainData.obstacles.filter((o) => o.type === 'rock');
+    const cliffs = this.terrainData.obstacles.filter((o) => o.type === 'cliff');
 
-        const foliage1 = new THREE.Mesh(foliageGeo, foliageMat);
-        foliage1.position.y = 2.8;
-        treeGroup.add(foliage1);
+    if (trees.length > 0) {
+      const trunkMesh = new THREE.InstancedMesh(trunkGeo, trunkMat, trees.length);
+      const foliage1Mesh = new THREE.InstancedMesh(foliageGeo, foliageMat, trees.length);
+      const foliage2Mesh = new THREE.InstancedMesh(foliageGeo, foliageMat, trees.length);
 
-        const foliage2 = new THREE.Mesh(foliageGeo, foliageMat);
-        foliage2.position.y = 4.4;
-        foliage2.scale.set(0.75, 0.75, 0.75);
-        treeGroup.add(foliage2);
+      trees.forEach((tree, i) => {
+        // Trunk
+        dummy.position.set(tree.position.x, tree.position.y + 1.0, tree.position.z);
+        dummy.scale.set(1, 1, 1);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        trunkMesh.setMatrixAt(i, dummy.matrix);
 
-        obstacleGroup.add(treeGroup);
-      } else if (obs.type === 'rock') {
-        const rockGeo = new THREE.DodecahedronGeometry(obs.radius, 0);
-        const rock = new THREE.Mesh(rockGeo, rockMat);
-        rock.position.set(obs.position.x, obs.position.y + obs.radius * 0.7, obs.position.z);
-        rock.scale.set(1.1, 0.8, 1.0);
-        obstacleGroup.add(rock);
-      } else if (obs.type === 'cliff') {
-        const cliffGeo = new THREE.CylinderGeometry(obs.radius * 0.85, obs.radius * 1.1, obs.height, 6);
-        const cliff = new THREE.Mesh(cliffGeo, cliffMat);
-        cliff.position.set(obs.position.x, obs.position.y + obs.height / 2, obs.position.z);
-        obstacleGroup.add(cliff);
-      }
+        // Foliage tier 1
+        dummy.position.set(tree.position.x, tree.position.y + 2.8, tree.position.z);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        foliage1Mesh.setMatrixAt(i, dummy.matrix);
+
+        // Foliage tier 2
+        dummy.position.set(tree.position.x, tree.position.y + 4.4, tree.position.z);
+        dummy.scale.set(0.75, 0.75, 0.75);
+        dummy.updateMatrix();
+        foliage2Mesh.setMatrixAt(i, dummy.matrix);
+      });
+
+      trunkMesh.instanceMatrix.needsUpdate = true;
+      foliage1Mesh.instanceMatrix.needsUpdate = true;
+      foliage2Mesh.instanceMatrix.needsUpdate = true;
+
+      obstacleGroup.add(trunkMesh, foliage1Mesh, foliage2Mesh);
+    }
+
+    if (rocks.length > 0) {
+      const rockGeo = new THREE.DodecahedronGeometry(1.0, 0);
+      const rockMesh = new THREE.InstancedMesh(rockGeo, rockMat, rocks.length);
+
+      rocks.forEach((rock, i) => {
+        dummy.position.set(rock.position.x, rock.position.y + rock.radius * 0.7, rock.position.z);
+        dummy.scale.set(rock.radius * 1.1, rock.radius * 0.8, rock.radius * 1.0);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        rockMesh.setMatrixAt(i, dummy.matrix);
+      });
+
+      rockMesh.instanceMatrix.needsUpdate = true;
+      obstacleGroup.add(rockMesh);
+    }
+
+    if (cliffs.length > 0) {
+      const cliffGeo = new THREE.CylinderGeometry(0.85, 1.1, 1.0, 6);
+      const cliffMesh = new THREE.InstancedMesh(cliffGeo, cliffMat, cliffs.length);
+
+      cliffs.forEach((cliff, i) => {
+        dummy.position.set(cliff.position.x, cliff.position.y + cliff.height / 2, cliff.position.z);
+        dummy.scale.set(cliff.radius, cliff.height, cliff.radius);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        cliffMesh.setMatrixAt(i, dummy.matrix);
+      });
+
+      cliffMesh.instanceMatrix.needsUpdate = true;
+      obstacleGroup.add(cliffMesh);
     }
 
     this.rootGroup.add(obstacleGroup);

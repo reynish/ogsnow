@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import * as THREE from 'three';
 import { TerrainManager } from '../../src/terrain/TerrainManager';
 import { PhysicsEngine } from '../../src/physics/PhysicsEngine';
 import { PlayerController } from '../../src/player/PlayerController';
@@ -91,9 +92,11 @@ describe('Physics, Character & Camera (Task 2)', () => {
   });
 
   describe('Steering & Yaw / Roll Rotation', () => {
-    it('turns heading to the right and rolls board right when steer is positive', () => {
+    it('turns heading to the right, moves towards world -X, banks roll right, and projects to camera NDC x > 0 when steer = +1.0 (B1)', () => {
       const dropZone = terrain.terrainData.dropZones[0];
-      physics.resetAtDropZone(dropZone);
+      const initial = physics.resetAtDropZone(dropZone);
+      const camera = new FollowCamera(16 / 9, DEFAULT_GAME_CONFIG, terrain);
+      camera.snap(initial);
 
       const steerRightInput: PlayerInput = { ...neutralInput, steer: 1.0 };
       for (let i = 0; i < 15; i++) {
@@ -101,13 +104,25 @@ describe('Physics, Character & Camera (Task 2)', () => {
       }
 
       const state = physics.getState();
-      expect(state.headingRad).toBeGreaterThan(dropZone.initialHeadingRad);
+      expect(state.headingRad).toBeLessThan(dropZone.initialHeadingRad);
+      expect(state.velocity.x).toBeLessThan(0); // world -X = screen right
       expect(state.rollRad).toBeGreaterThan(0.1); // Banking into turn
+
+      camera.camera.updateMatrixWorld();
+      const pointAhead = new THREE.Vector3(
+        state.position.x + state.velocity.x,
+        state.position.y + state.velocity.y,
+        state.position.z + state.velocity.z
+      );
+      pointAhead.project(camera.camera);
+      expect(pointAhead.x).toBeGreaterThan(0); // Camera NDC x > 0 (screen right)
     });
 
-    it('turns heading to the left and rolls board left when steer is negative', () => {
+    it('turns heading to the left, moves towards world +X, banks roll left, and projects to camera NDC x < 0 when steer = -1.0 (B1)', () => {
       const dropZone = terrain.terrainData.dropZones[0];
-      physics.resetAtDropZone(dropZone);
+      const initial = physics.resetAtDropZone(dropZone);
+      const camera = new FollowCamera(16 / 9, DEFAULT_GAME_CONFIG, terrain);
+      camera.snap(initial);
 
       const steerLeftInput: PlayerInput = { ...neutralInput, steer: -1.0 };
       for (let i = 0; i < 15; i++) {
@@ -115,8 +130,18 @@ describe('Physics, Character & Camera (Task 2)', () => {
       }
 
       const state = physics.getState();
-      expect(state.headingRad).toBeLessThan(dropZone.initialHeadingRad);
-      expect(state.rollRad).toBeLessThan(-0.1);
+      expect(state.headingRad).toBeGreaterThan(dropZone.initialHeadingRad);
+      expect(state.velocity.x).toBeGreaterThan(0); // world +X = screen left
+      expect(state.rollRad).toBeLessThan(-0.1); // Banking into turn
+
+      camera.camera.updateMatrixWorld();
+      const pointAhead = new THREE.Vector3(
+        state.position.x + state.velocity.x,
+        state.position.y + state.velocity.y,
+        state.position.z + state.velocity.z
+      );
+      pointAhead.project(camera.camera);
+      expect(pointAhead.x).toBeLessThan(0); // Camera NDC x < 0 (screen left)
     });
   });
 
@@ -198,7 +223,7 @@ describe('Physics, Character & Camera (Task 2)', () => {
     });
   });
 
-  describe('Obstacle Collisions & Crash Recovery', () => {
+  describe('Obstacle Collisions & Crash Recovery (B4)', () => {
     it('sets isCrashed = true and reduces speed when forceCrash() is called, and auto-recovers after crashRecoverySeconds', () => {
       const dropZone = terrain.terrainData.dropZones[0];
       physics.resetAtDropZone(dropZone);
@@ -234,32 +259,83 @@ describe('Physics, Character & Camera (Task 2)', () => {
       expect(recovered.crashTimerSeconds).toBe(0);
     });
 
-    it('triggers crash when colliding with a terrain obstacle', () => {
+    it('low-speed collision (< 28 km/h) deflects velocity radially outward and pushes rider outside obstacle radius without setting isCrashed = true (B4)', () => {
       const obs = terrain.terrainData.obstacles[0];
       expect(obs).toBeDefined();
 
-      // Reset at dropzone, then manually place right in obstacle collision zone
       const dropZone = terrain.terrainData.dropZones[0];
       physics.resetAtDropZone(dropZone);
 
-      // Build forward speed
-      for (let i = 0; i < 15; i++) {
-        physics.step(0.05, neutralInput);
+      // Low speed: only 1 step (~2 km/h < 28 km/h)
+      physics.step(0.05, neutralInput);
+      expect(physics.getState().speedKmh).toBeLessThan(DEFAULT_GAME_CONFIG.crashSpeedThresholdKmh);
+
+      // Place rider within collision radius of obstacle
+      (physics as any).state.position.x = obs.position.x + 0.1;
+      (physics as any).state.position.y = obs.position.y;
+      (physics as any).state.position.z = obs.position.z + 0.1;
+
+      const postStep = physics.step(0.05, neutralInput);
+
+      // Low-speed contact deflects without triggering crash
+      expect(postStep.isCrashed).toBe(false);
+
+      // Pushed radially outside obstacle radius
+      const distFromObs = Math.hypot(
+        postStep.position.x - obs.position.x,
+        postStep.position.z - obs.position.z
+      );
+      expect(distFromObs).toBeGreaterThanOrEqual(obs.radius);
+
+      // Velocity deflected radially outward
+      const dotRadial =
+        postStep.velocity.x * (postStep.position.x - obs.position.x) +
+        postStep.velocity.z * (postStep.position.z - obs.position.z);
+      expect(dotRadial).toBeGreaterThan(0);
+    });
+
+    it('high-speed collision (>= 28 km/h) sets isCrashed = true, pushes rider outside obstacle radius, and decelerates during recovery (B4)', () => {
+      const obs = terrain.terrainData.obstacles[0];
+      expect(obs).toBeDefined();
+
+      const dropZone = terrain.terrainData.dropZones[0];
+      physics.resetAtDropZone(dropZone);
+
+      // Build forward speed >= 28 km/h
+      for (let i = 0; i < 20; i++) {
+        physics.step(0.05, { ...neutralInput, tuck: true });
       }
+      expect(physics.getState().speedKmh).toBeGreaterThanOrEqual(DEFAULT_GAME_CONFIG.crashSpeedThresholdKmh);
 
       // Overwrite body position to obstacle boundary
-      (physics as any).state.position.x = obs.position.x;
+      (physics as any).state.position.x = obs.position.x + 0.1;
       (physics as any).state.position.y = obs.position.y;
-      (physics as any).state.position.z = obs.position.z;
+      (physics as any).state.position.z = obs.position.z + 0.1;
 
       // Step simulation
       const postStep = physics.step(0.05, neutralInput);
       expect(postStep.isCrashed).toBe(true);
-      expect(postStep.crashTimerSeconds).toBe(DEFAULT_GAME_CONFIG.crashRecoverySeconds);
+      expect(postStep.crashTimerSeconds).toBeGreaterThan(0);
+      expect(postStep.crashTimerSeconds).toBeLessThanOrEqual(DEFAULT_GAME_CONFIG.crashRecoverySeconds);
+
+      // Rider pushed outside obstacle radius
+      const distFromObs = Math.hypot(
+        postStep.position.x - obs.position.x,
+        postStep.position.z - obs.position.z
+      );
+      expect(distFromObs).toBeGreaterThanOrEqual(obs.radius);
+
+      // During crash recovery, speedKmh decelerates rather than accelerating downhill under slope gravity
+      let prevSpeed = postStep.speedKmh;
+      for (let i = 0; i < 10; i++) {
+        const recoverStep = physics.step(0.05, neutralInput);
+        expect(recoverStep.speedKmh).toBeLessThanOrEqual(prevSpeed);
+        prevSpeed = recoverStep.speedKmh;
+      }
     });
   });
 
-  describe('Lateral Boundary Clamping', () => {
+  describe('Boundary Handling (Lateral Clamping & Bottom Reset M12)', () => {
     it('clamps position.x within mountain boundary width', () => {
       const dropZone = terrain.terrainData.dropZones[0];
       physics.resetAtDropZone(dropZone);
@@ -272,6 +348,21 @@ describe('Physics, Character & Camera (Task 2)', () => {
 
       const state = physics.step(0.05, neutralInput);
       expect(state.position.x).toBeLessThanOrEqual(halfW - 8);
+    });
+
+    it('cleanly resets rider back to the active drop zone upon reaching bottom boundary (z >= length / 2 - 15) (M12)', () => {
+      const dropZone = terrain.terrainData.dropZones[1]; // harmony-ridge
+      physics.resetAtDropZone(dropZone);
+
+      const halfLength = terrain.terrainData.length / 2;
+      // Position rider at/past bottom boundary
+      (physics as any).state.position.z = halfLength - 14;
+
+      const resetState = physics.step(0.05, neutralInput);
+      expect(resetState.position.x).toBe(dropZone.spawnPosition.x);
+      expect(resetState.position.z).toBe(dropZone.spawnPosition.z);
+      expect(resetState.activeDropZoneId).toBe(dropZone.id);
+      expect(resetState.speedKmh).toBe(0);
     });
   });
 
@@ -311,6 +402,36 @@ describe('Physics, Character & Camera (Task 2)', () => {
 
       controller.clearResetFlag();
       expect(controller.getInput().reset).toBe(false);
+      controller.dispose();
+    });
+
+    it('keyboard Space jump is edge-triggered across multiple getInput() calls until keyup (M2)', () => {
+      const controller = new PlayerController();
+
+      // Trigger Space keydown
+      (controller as any).handleKeyDown({ code: 'Space', preventDefault: () => {} });
+
+      // First frame receives jump = true
+      const frame1 = controller.getInput();
+      expect(frame1.jump).toBe(true);
+
+      // Subsequent frames while holding Space return jump = false
+      const frame2 = controller.getInput();
+      expect(frame2.jump).toBe(false);
+
+      const frame3 = controller.getInput();
+      expect(frame3.jump).toBe(false);
+
+      // Release Space key
+      (controller as any).handleKeyUp({ code: 'Space', preventDefault: () => {} });
+      const frame4 = controller.getInput();
+      expect(frame4.jump).toBe(false);
+
+      // Press Space again -> new rising edge
+      (controller as any).handleKeyDown({ code: 'Space', preventDefault: () => {} });
+      const frame5 = controller.getInput();
+      expect(frame5.jump).toBe(true);
+
       controller.dispose();
     });
   });

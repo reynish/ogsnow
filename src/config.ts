@@ -23,8 +23,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   dropZones: [
     {
       id: 'summit-express',
-      name: 'Peak Express Summit (2,182m)',
-      elevationMeters: 2182,
+      name: 'Peak Express Summit (2,130m)',
+      elevationMeters: 2130,
       description: 'Steep alpine bowl dropping directly from the Whistler summit ridge.',
       difficulty: 'Double Black',
       spawnPosition: { x: 0, y: 0, z: -520 },

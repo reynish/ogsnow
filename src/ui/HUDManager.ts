@@ -27,6 +27,15 @@ export class HUDManager {
 
   private currentMode: GameMode = 'menu';
 
+  // [PR-1 M1/Security] Cached HUD values to eliminate redundant DOM writes
+  private cachedSpeedText: string = '';
+  private cachedAltitudeText: string = '';
+  private cachedStemsText: string = '';
+  private cachedMuteBtnText: string = '';
+  private cachedCarveWidth: string = '';
+  private cachedActiveBanner: 'crash' | 'airtime' | 'carve' | 'none' = 'none';
+  private cachedAirtimeText: string = '';
+
   constructor(container: HTMLElement, config: GameConfig, callbacks: HUDCallbacks) {
     this.container = container;
     this.config = config;
@@ -44,6 +53,7 @@ export class HUDManager {
     } else {
       this.mainMenuEl.classList.add('hidden');
       this.hudOverlayEl.classList.remove('hidden');
+      this.cachedActiveBanner = 'none';
 
       if (activeDropZoneId) {
         const dropZone = this.config.dropZones.find((dz) => dz.id === activeDropZoneId);
@@ -59,47 +69,74 @@ export class HUDManager {
       return;
     }
 
-    // Update Speedometer & Altimeter
+    // [PR-1 M1/Security] Update Speedometer & Altimeter with DOM write caching
     const speedKmh = Math.max(0, Math.round(player.speedKmh));
-    this.speedEl.textContent = `${speedKmh} km/h`;
+    const speedText = `${speedKmh} km/h`;
+    if (this.cachedSpeedText !== speedText) {
+      this.speedEl.textContent = speedText;
+      this.cachedSpeedText = speedText;
+    }
 
     const altitude = Math.round(player.altitudeMeters);
-    this.altitudeEl.textContent = `${altitude} m`;
+    const altitudeText = `${altitude} m`;
+    if (this.cachedAltitudeText !== altitudeText) {
+      this.altitudeEl.textContent = altitudeText;
+      this.cachedAltitudeText = altitudeText;
+    }
 
     // Update Stems Badge
     const stemLabels = audio.activeStems.map((stem) => {
       if (stem.toLowerCase() === 'drums') return 'AMEN BREAKS';
       return stem.toUpperCase();
     });
-    this.stemsEl.textContent = stemLabels.join(' + ') || 'MUTED';
+    const stemsText = stemLabels.join(' + ') || 'MUTED';
+    if (this.cachedStemsText !== stemsText) {
+      this.stemsEl.textContent = stemsText;
+      this.cachedStemsText = stemsText;
+    }
 
     // Update Mute Button text
-    this.muteBtnEl.textContent = audio.isMuted ? 'UNMUTE [M]' : 'MUTE [M]';
+    const muteText = audio.isMuted ? 'UNMUTE [M]' : 'MUTE [M]';
+    if (this.cachedMuteBtnText !== muteText) {
+      this.muteBtnEl.textContent = muteText;
+      this.cachedMuteBtnText = muteText;
+    }
 
     // Carve Meter
     if (this.carveMeterFillEl) {
       const carvePercent = Math.min(100, Math.round(player.carveIntensity * 100));
-      this.carveMeterFillEl.style.width = `${carvePercent}%`;
+      const carveWidth = `${carvePercent}%`;
+      if (this.cachedCarveWidth !== carveWidth) {
+        this.carveMeterFillEl.style.width = carveWidth;
+        this.cachedCarveWidth = carveWidth;
+      }
     }
 
     // Status Banners
+    let activeBanner: 'crash' | 'airtime' | 'carve' | 'none' = 'none';
+    let airtimeText = '';
+
     if (player.isCrashed) {
-      this.crashBannerEl.style.display = 'block';
-      this.airtimeBannerEl.style.display = 'none';
-      this.carveBannerEl.style.display = 'none';
+      activeBanner = 'crash';
     } else if (!player.isGrounded && player.airtimeSeconds > 0.15) {
-      this.crashBannerEl.style.display = 'none';
-      this.airtimeBannerEl.style.display = 'block';
-      this.airtimeBannerEl.textContent = `AIRTIME: ${player.airtimeSeconds.toFixed(1)}s`;
-      this.carveBannerEl.style.display = 'none';
+      activeBanner = 'airtime';
+      airtimeText = `AIRTIME: ${player.airtimeSeconds.toFixed(1)}s`;
     } else if (player.isGrounded && player.carveIntensity > 0.35) {
-      this.crashBannerEl.style.display = 'none';
-      this.airtimeBannerEl.style.display = 'none';
-      this.carveBannerEl.style.display = 'block';
-    } else {
-      this.crashBannerEl.style.display = 'none';
-      this.airtimeBannerEl.style.display = 'none';
-      this.carveBannerEl.style.display = 'none';
+      activeBanner = 'carve';
+    }
+
+    if (
+      this.cachedActiveBanner !== activeBanner ||
+      (activeBanner === 'airtime' && this.cachedAirtimeText !== airtimeText)
+    ) {
+      this.crashBannerEl.style.display = activeBanner === 'crash' ? 'block' : 'none';
+      this.airtimeBannerEl.style.display = activeBanner === 'airtime' ? 'block' : 'none';
+      if (activeBanner === 'airtime') {
+        this.airtimeBannerEl.textContent = airtimeText;
+        this.cachedAirtimeText = airtimeText;
+      }
+      this.carveBannerEl.style.display = activeBanner === 'carve' ? 'block' : 'none';
+      this.cachedActiveBanner = activeBanner;
     }
   }
 
@@ -115,24 +152,46 @@ export class HUDManager {
     // Header
     const headerEl = document.createElement('div');
     headerEl.className = 'menu-header';
-    headerEl.innerHTML = `
-      <div class="game-title">OG SNOW</div>
-      <div class="game-subtitle">Extreme Downhill PS1 Freeride</div>
-      <div class="mountain-info">
-        <span class="mountain-badge">FLAGSHIP RESORT</span>
-        <span class="mountain-name">${this.config.mountainName}</span>
-      </div>
-    `;
+
+    const gameTitleEl = document.createElement('div');
+    gameTitleEl.className = 'game-title';
+    gameTitleEl.textContent = 'OG SNOW';
+
+    const gameSubTitleEl = document.createElement('div');
+    gameSubTitleEl.className = 'game-subtitle';
+    gameSubTitleEl.textContent = 'Extreme Downhill PS1 Freeride';
+
+    const mountainInfoEl = document.createElement('div');
+    mountainInfoEl.className = 'mountain-info';
+
+    const mountainBadgeEl = document.createElement('span');
+    mountainBadgeEl.className = 'mountain-badge';
+    mountainBadgeEl.textContent = 'FLAGSHIP RESORT';
+
+    const mountainNameEl = document.createElement('span');
+    mountainNameEl.className = 'mountain-name';
+    mountainNameEl.textContent = this.config.mountainName;
+
+    mountainInfoEl.appendChild(mountainBadgeEl);
+    mountainInfoEl.appendChild(mountainNameEl);
+    headerEl.appendChild(gameTitleEl);
+    headerEl.appendChild(gameSubTitleEl);
+    headerEl.appendChild(mountainInfoEl);
     this.mainMenuEl.appendChild(headerEl);
 
     // Drop Zone Selection
     const dropZoneSection = document.createElement('div');
     dropZoneSection.className = 'drop-zone-section';
-    dropZoneSection.innerHTML = `<div class="section-label">SELECT DROP ZONE TO DROP IN</div>`;
+
+    const sectionLabelEl = document.createElement('div');
+    sectionLabelEl.className = 'section-label';
+    sectionLabelEl.textContent = 'SELECT DROP ZONE TO DROP IN';
+    dropZoneSection.appendChild(sectionLabelEl);
 
     const dropZoneGrid = document.createElement('div');
     dropZoneGrid.className = 'drop-zone-grid';
 
+    // [PR-1 M1/Security] Construct drop-zone cards using safe DOM element creation and textContent
     for (const dz of this.config.dropZones) {
       const card = document.createElement('button');
       card.className = 'drop-zone-card retro-skew retro-shadow';
@@ -143,16 +202,34 @@ export class HUDManager {
       else if (dz.difficulty === 'Black') diffClass = 'difficulty-black';
       else if (dz.difficulty === 'Green') diffClass = 'difficulty-green';
 
-      card.innerHTML = `
-        <div class="drop-zone-title-row">
-          <span class="drop-zone-name">${dz.name}</span>
-          <span class="difficulty-tag ${diffClass}">${dz.difficulty}</span>
-        </div>
-        <div class="drop-zone-elevation">${dz.elevationMeters}m Elevation</div>
-        <div class="drop-zone-desc">${dz.description}</div>
-      `;
+      const titleRow = document.createElement('div');
+      titleRow.className = 'drop-zone-title-row';
 
-      card.addEventListener('click', () => {
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'drop-zone-name';
+      nameSpan.textContent = dz.name;
+
+      const diffSpan = document.createElement('span');
+      diffSpan.className = `difficulty-tag ${diffClass}`;
+      diffSpan.textContent = dz.difficulty;
+
+      titleRow.appendChild(nameSpan);
+      titleRow.appendChild(diffSpan);
+
+      const elevDiv = document.createElement('div');
+      elevDiv.className = 'drop-zone-elevation';
+      elevDiv.textContent = `${dz.elevationMeters}m Elevation`;
+
+      const descDiv = document.createElement('div');
+      descDiv.className = 'drop-zone-desc';
+      descDiv.textContent = dz.description;
+
+      card.appendChild(titleRow);
+      card.appendChild(elevDiv);
+      card.appendChild(descDiv);
+
+      card.addEventListener('click', (e) => {
+        (e.currentTarget as HTMLElement)?.blur();
         this.callbacks.onSelectDropZone(dz.id);
       });
 
@@ -205,19 +282,24 @@ export class HUDManager {
     const actionButtons = document.createElement('div');
     actionButtons.className = 'hud-action-buttons';
 
+    // [PR-1 M1/Security] Set tabindex="-1" and blur on click so space to jump never triggers button
     this.muteBtnEl = document.createElement('button');
     this.muteBtnEl.className = 'retro-btn retro-btn-secondary retro-skew retro-shadow';
     this.muteBtnEl.setAttribute('data-testid', 'btn-mute-audio');
+    this.muteBtnEl.setAttribute('tabindex', '-1');
     this.muteBtnEl.textContent = 'MUTE [M]';
-    this.muteBtnEl.addEventListener('click', () => {
+    this.muteBtnEl.addEventListener('click', (e) => {
+      (e.currentTarget as HTMLElement)?.blur();
       this.callbacks.onToggleMute();
     });
 
     this.returnBtnEl = document.createElement('button');
     this.returnBtnEl.className = 'retro-btn retro-skew retro-shadow';
     this.returnBtnEl.setAttribute('data-testid', 'btn-return-menu');
+    this.returnBtnEl.setAttribute('tabindex', '-1');
     this.returnBtnEl.textContent = 'MOUNTAIN MENU';
-    this.returnBtnEl.addEventListener('click', () => {
+    this.returnBtnEl.addEventListener('click', (e) => {
+      (e.currentTarget as HTMLElement)?.blur();
       this.callbacks.onReturnToMenu();
     });
 

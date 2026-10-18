@@ -21,11 +21,12 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
 
     await page.goto('/');
 
-    // Wait until GameApp initializes window.__OGSNOW_STATE__ and window.__OGSNOW_APP__
+    // Wait until GameApp initializes window.__OGSNOW_STATE__ and window.__OGSNOW_APP__, and finishes async setup (B2)
     await page.waitForFunction(() => {
       return (
         typeof window.__OGSNOW_STATE__ !== 'undefined' &&
-        typeof window.__OGSNOW_APP__ !== 'undefined'
+        typeof window.__OGSNOW_APP__ !== 'undefined' &&
+        window.__OGSNOW_STATE__?.ready === true
       );
     });
   });
@@ -44,6 +45,10 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
   });
 
   test('1. Main menu renders flagship mountain and all 3 drop zones', async ({ page }) => {
+    // Verify WebGL canvas presence (M7)
+    const canvas = page.locator('canvas');
+    await expect(canvas).toBeVisible();
+
     // Verify Main Menu container is visible
     const mainMenu = page.locator('#main-menu');
     await expect(mainMenu).toBeVisible();
@@ -65,9 +70,11 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     await expect(glacierBtn).toBeVisible();
     await expect(glacierBtn).toContainText('Glacier Creek');
 
-    // Verify initial state is 'menu'
+    // Verify initial state is 'menu' and WebGL is active
     const state = await page.evaluate(() => window.__OGSNOW_STATE__);
     expect(state.mode).toBe('menu');
+    expect(state.ready).toBe(true);
+    expect(state.webglActive).toBe(true);
   });
 
   test('2. Drop zone selection transitions mode to riding, loads GLB terrain, and shows HUD', async ({
@@ -113,6 +120,8 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
 
     // Progress simulation downhill
     await page.evaluate(() => {
+      // Pause live rAF loop during deterministic stepping (M4)
+      window.__OGSNOW_APP__?.setPaused?.(true);
       // Step simulation for 2.0s with tucking to build momentum rapidly
       for (let i = 0; i < 40; i++) {
         window.__OGSNOW_APP__?.stepSimulation(0.05, { tuck: true });
@@ -128,6 +137,7 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
 
     // Continue downhill until high speed (>= 60 km/h) to engage Amen breakbeat drum layer
     await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(true);
       for (let i = 0; i < 80; i++) {
         window.__OGSNOW_APP__?.stepSimulation(0.05, { tuck: true });
       }
@@ -153,6 +163,11 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     await page.locator('[data-testid="drop-zone-btn-summit-express"]').click();
     await page.waitForFunction(() => window.__OGSNOW_STATE__.mode === 'riding');
 
+    // Pause rAF loop for deterministic simulation steps (M4)
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(true);
+    });
+
     // Build initial speed
     await page.evaluate(() => {
       for (let i = 0; i < 30; i++) {
@@ -163,7 +178,7 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     const preSteer = await page.evaluate(() => window.__OGSNOW_STATE__);
     const initialHeading = preSteer.player.headingRad;
 
-    // Test Right Steering
+    // Test Right Steering: steer = +1.0 decrements headingRad (turning toward world -X / screen-right) (B1)
     await page.evaluate(() => {
       for (let i = 0; i < 20; i++) {
         window.__OGSNOW_APP__?.stepSimulation(0.05, { steer: 1.0 });
@@ -171,10 +186,10 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     });
 
     const postSteerRight = await page.evaluate(() => window.__OGSNOW_STATE__);
-    expect(postSteerRight.player.headingRad).toBeGreaterThan(initialHeading);
+    expect(postSteerRight.player.headingRad).toBeLessThan(initialHeading);
     expect(postSteerRight.player.rollRad).toBeGreaterThan(0);
 
-    // Test Left Steering
+    // Test Left Steering: steer = -1.0 increments headingRad (turning toward world +X / screen-left) (B1)
     await page.evaluate(() => {
       for (let i = 0; i < 40; i++) {
         window.__OGSNOW_APP__?.stepSimulation(0.05, { steer: -1.0 });
@@ -182,13 +197,12 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     });
 
     const postSteerLeft = await page.evaluate(() => window.__OGSNOW_STATE__);
-    expect(postSteerLeft.player.headingRad).toBeLessThan(postSteerRight.player.headingRad);
+    expect(postSteerLeft.player.headingRad).toBeGreaterThan(postSteerRight.player.headingRad);
 
     // Test Carving Deceleration: compare unbraked vs carved speed
     // 1. Unbraked run
     await page.evaluate(() => {
-      const dz = window.__OGSNOW_STATE__.activeDropZoneId;
-      window.__OGSNOW_APP__?.dropIn(dz);
+      window.__OGSNOW_APP__?.stepSimulation(0.05, { reset: true });
       for (let i = 0; i < 40; i++) {
         window.__OGSNOW_APP__?.stepSimulation(0.05, {});
       }
@@ -197,8 +211,7 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
 
     // 2. Carved run with carve = 1.0
     await page.evaluate(() => {
-      const dz = window.__OGSNOW_STATE__.activeDropZoneId;
-      window.__OGSNOW_APP__?.dropIn(dz);
+      window.__OGSNOW_APP__?.stepSimulation(0.05, { reset: true });
       for (let i = 0; i < 40; i++) {
         window.__OGSNOW_APP__?.stepSimulation(0.05, { carve: 1.0 });
       }
@@ -218,6 +231,7 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     await page.waitForFunction(() => window.__OGSNOW_STATE__.mode === 'riding');
 
     await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(true);
       for (let i = 0; i < 80; i++) {
         window.__OGSNOW_APP__?.stepSimulation(0.05, { tuck: true });
       }
@@ -244,6 +258,7 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
 
     // Advance simulation past crash recovery time (1.5 seconds = 30 steps @ 0.05s)
     await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(true);
       for (let i = 0; i < 35; i++) {
         window.__OGSNOW_APP__?.stepSimulation(0.05, {});
       }
@@ -255,7 +270,7 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     await expect(crashBanner).toBeHidden();
   });
 
-  test('6. Return to menu button returns game mode to menu and hides HUD', async ({
+  test('6. Return to menu button returns game mode to menu, hides HUD, and ducks audio to pad only (M3)', async ({
     page,
   }) => {
     // Drop in first
@@ -264,6 +279,17 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
 
     const hudOverlay = page.locator('#hud-overlay');
     await expect(hudOverlay).toBeVisible();
+
+    // Build speed so stems become active
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(true);
+      for (let i = 0; i < 50; i++) {
+        window.__OGSNOW_APP__?.stepSimulation(0.05, { tuck: true });
+      }
+    });
+
+    const ridingState = await page.evaluate(() => window.__OGSNOW_STATE__);
+    expect(ridingState.audio.activeStems.length).toBeGreaterThan(1);
 
     // Click Return to Menu
     const returnBtn = page.locator('[data-testid="btn-return-menu"]');
@@ -274,8 +300,71 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     const state = await page.evaluate(() => window.__OGSNOW_STATE__);
     expect(state.mode).toBe('menu');
 
+    // M3: Verify audio ducked to ['pad'] only with bassGain = 0 and drumGain = 0
+    expect(state.audio.activeStems).toEqual(['pad']);
+    expect(state.audio.bassGain).toBe(0);
+    expect(state.audio.drumGain).toBe(0);
+
     // Main menu visible, HUD hidden
     await expect(page.locator('#main-menu')).toBeVisible();
     await expect(hudOverlay).toBeHidden();
+  });
+
+  test('7. Real keyboard input steers rider and spacebar is safe after clicking mute button (M1, M5)', async ({
+    page,
+  }) => {
+    // Drop in at summit
+    await page.locator('[data-testid="drop-zone-btn-summit-express"]').click();
+    await expect(page.locator('#main-menu')).toBeHidden();
+    await expect(page.locator('#hud-overlay')).toBeVisible();
+
+    // Ensure live simulation is unpaused so real DOM keyboard events are integrated by rAF loop (M5)
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(false);
+    });
+
+    // Let rider roll for a brief moment to get non-zero forward speed
+    await page.waitForTimeout(200);
+
+    const initialHeading = (await page.evaluate(() => window.__OGSNOW_STATE__)).player.headingRad;
+
+    // Test real keyboard input for steering right (M5)
+    await page.keyboard.down('ArrowRight');
+    await page.waitForTimeout(300);
+    await page.keyboard.up('ArrowRight');
+
+    const rightState = await page.evaluate(() => window.__OGSNOW_STATE__);
+    // steer = +1 decrements headingRad towards world -X
+    expect(rightState.player.headingRad).toBeLessThan(initialHeading);
+    expect(rightState.player.velocity.x).toBeLessThan(0);
+
+    // Test real keyboard input for steering left (M5)
+    await page.keyboard.down('ArrowLeft');
+    await page.waitForTimeout(500);
+    await page.keyboard.up('ArrowLeft');
+
+    const leftState = await page.evaluate(() => window.__OGSNOW_STATE__);
+    expect(leftState.player.headingRad).toBeGreaterThan(rightState.player.headingRad);
+
+    // Test Button Focus / Spacebar safety after clicking mute button (M1)
+    const muteBtn = page.locator('[data-testid="btn-mute-audio"]');
+    await muteBtn.click();
+
+    let state = await page.evaluate(() => window.__OGSNOW_STATE__);
+    expect(state.audio.isMuted).toBe(true);
+
+    // Verify mute button is blurred after click
+    const isMuteFocused = await muteBtn.evaluate((el) => document.activeElement === el);
+    expect(isMuteFocused).toBe(false);
+
+    // Press Space key (jump) — should NOT toggle mute button
+    await page.keyboard.press('Space');
+    state = await page.evaluate(() => window.__OGSNOW_STATE__);
+    expect(state.audio.isMuted).toBe(true);
+
+    // Click mute button again to unmute
+    await muteBtn.click();
+    state = await page.evaluate(() => window.__OGSNOW_STATE__);
+    expect(state.audio.isMuted).toBe(false);
   });
 });

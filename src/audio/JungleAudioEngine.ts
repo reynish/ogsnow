@@ -37,19 +37,11 @@ export class JungleAudioEngine {
       activeStems: ['pad'],
     };
 
-    if (audioContextOverride && audioContextOverride instanceof (globalThis.AudioContext || Object)) {
+    // [PR-1 Audio: C-minor harmonic alignment & lazy AudioContext]
+    // Only assign ctx in constructor if audioContextOverride is passed.
+    // Lazy AudioContext creation inside init() avoids browser autoplay console warnings on initial page load.
+    if (audioContextOverride) {
       this.ctx = audioContextOverride as AudioContext;
-    } else if (typeof window !== 'undefined') {
-      const AudioCtxClass =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (AudioCtxClass) {
-        try {
-          this.ctx = new AudioCtxClass();
-        } catch {
-          this.ctx = null;
-        }
-      }
     }
   }
 
@@ -223,6 +215,7 @@ export class JungleAudioEngine {
       }
     }
 
+    this.ctx = null;
     this.isGraphRunning = false;
     this.state.isInitialized = false;
   }
@@ -276,21 +269,25 @@ export class JungleAudioEngine {
       this.bassGainNode.connect(bassFilter);
       bassFilter.connect(this.masterGainNode);
 
-      // Detuned twin saw oscillators for Reese phasing + sub sine
-      const baseBassFreq = 55.0; // A1
+      // [PR-1 Audio: C-minor harmonic alignment & lazy AudioContext]
+      // Detuned twin saw oscillators for Reese phasing (65.41 Hz / C2) + sub sine (32.70 Hz / C1)
+      // Harmonically aligned with the C-minor-9th atmospheric pad (C3 130.81, Eb3 155.56, G3 196.00, Bb3 233.08, D4 293.66)
+      const reeseBassFreq = 65.41; // C2
+      const subBassFreq = 32.70; // C1
+
       const saw1 = this.ctx.createOscillator();
       saw1.type = 'sawtooth';
-      saw1.frequency.setValueAtTime(baseBassFreq, this.ctx.currentTime);
+      saw1.frequency.setValueAtTime(reeseBassFreq, this.ctx.currentTime);
       saw1.detune.setValueAtTime(-4, this.ctx.currentTime);
 
       const saw2 = this.ctx.createOscillator();
       saw2.type = 'sawtooth';
-      saw2.frequency.setValueAtTime(baseBassFreq, this.ctx.currentTime);
+      saw2.frequency.setValueAtTime(reeseBassFreq, this.ctx.currentTime);
       saw2.detune.setValueAtTime(4, this.ctx.currentTime);
 
       const subSine = this.ctx.createOscillator();
       subSine.type = 'sine';
-      subSine.frequency.setValueAtTime(baseBassFreq, this.ctx.currentTime);
+      subSine.frequency.setValueAtTime(subBassFreq, this.ctx.currentTime);
 
       saw1.connect(this.bassGainNode);
       saw2.connect(this.bassGainNode);

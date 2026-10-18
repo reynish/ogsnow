@@ -54,7 +54,7 @@ export interface PlayerState {
   velocity: Vector3Like;
   speedMs: number;          // Speed in meters/second
   speedKmh: number;         // Speed in km/h (speedMs * 3.6)
-  headingRad: number;       // Yaw angle in radians (0 = -Z downhill)
+  headingRad: number;       // Yaw angle in radians (0 = +Z downhill; negative heading = world -X = screen right)
   pitchRad: number;         // Slope pitch angle in radians
   rollRad: number;          // Board edge/lean roll angle in radians
   carveAngleRad: number;    // Angle between board heading and velocity vector
@@ -112,6 +112,8 @@ export interface GameConfig {
 }
 
 export interface OGSnowGlobalState {
+  ready?: boolean;
+  webglActive?: boolean;
   mode: GameMode;
   mountainName: string;
   activeDropZoneId: string;
@@ -139,6 +141,7 @@ declare global {
       stepSimulation: (dtSeconds: number, overrideInput?: Partial<PlayerInput>) => void;
       setInputOverride: (overrideInput: Partial<PlayerInput> | null) => void;
       triggerCrashForTest: () => void;
+      setPaused?: (paused: boolean) => void;
     };
   }
 }
