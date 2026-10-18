@@ -8,7 +8,7 @@
 
 \* **Product Collaboration (`README.md`):** Collaborate with the user to define and refine the Product Requirement Definition (PRD) in `README.md`.
 
-\* **Execution Gate:** Do not spawn sub-agents until you and the user have agreed on a set of changes and finalized them in `README.md`. Once `README.md` is updated and approved, spin out sub-agents to deliver the agreed work.
+\* **Execution Gate:** Do not spawn sub-agents until you and the user have agreed on a set of changes and finalized them in `README.md`. Once `README.md` is updated and approved, create a dedicated Git branch for the iteration and spin out sub-agents to deliver the agreed work on that branch.
 
 \* **Responsibility:** Coordinate strictly across sub-agents—delegate architecture, implementation, testing, and CI/CD tasks, monitor execution, and review outputs.
 
@@ -60,6 +60,8 @@
 
 ## Version Control &amp; CI/CD
 
-\* **Git Commits:** Ensure all verified changes, `wiki/` documentation, ADRs, tests, and workflows are staged and committed to Git with clear, atomic commit messages once verification passes.
+\* **Branch-Per-Iteration Workflow:** Before starting any new set of agreed changes from `README.md`, the Chief of Staff must create and check out a dedicated Git branch (e.g., `git checkout -b feat/<iteration-name>`). All sub-agents work and commit within that branch so the baseline commit remains clean and easy to rewind to or branch from at any point in time.
+
+\* **Git Commits:** Ensure all verified changes, `wiki/` documentation, ADRs, tests, and workflows are staged, committed to the active branch with clear, atomic commit messages, and pushed to remote once verification passes.
 
 \* **GitHub Actions:** Delegate the creation and maintenance of GitHub Actions workflows (`.github/workflows/`) to automatically build, test, run E2E browser verification, and deploy the game on push and pull requests.
