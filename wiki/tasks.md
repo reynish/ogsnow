@@ -118,11 +118,16 @@ flowchart TD
 
 ---
 
-## Task 5: GitHub Actions CI/CD Pipeline
+## Task 5: GitHub Actions CI/CD & Automated GitHub Pages Deployment Pipeline
 
-- **Assigned Role:** CI/CD Sub-Agent
+- **Assigned Role:** CI/CD & GitHub Pages Sub-Agent
 - **Owned Files:**
   - `.github/workflows/ci.yml`
+  - `vite.config.ts` (base path configuration)
 - **Detailed Requirements:**
-  1. Create `.github/workflows/ci.yml` triggered on `push` (`main`, `master`, `feat/**`) and `pull_request`.
-  2. Configure Node.js 20 with `npm` caching, install dependencies (`npm ci`), install Playwright Chromium (`npx playwright install --with-deps chromium`), run `npm run build`, `npm test`, and `npm run test:e2e`, and upload `dist/` and Playwright reports as workflow artifacts.
+  1. Create and maintain `.github/workflows/ci.yml` triggered on `push` (`main`, `master`, `feat/**`) and `pull_request`.
+  2. Configure top-level workflow permissions (`contents: read`, `pages: write`, `id-token: write`) and concurrency group (`group: 'pages'`, `cancel-in-progress: false`).
+  3. Configure Node.js 20 with `npm` caching, install dependencies (`npm ci`), install Playwright Chromium (`npx playwright install --with-deps chromium`), run `npm run build`, `npm test`, and `npm run test:e2e`.
+  4. Upload Pages artifact using `actions/upload-pages-artifact@v3` (`path: ./dist`) in `build-and-test` after all tests pass.
+  5. Add `deploy-pages` job (`needs: build-and-test`, runs on push to `main`, `master`, or `feat/**`) deploying via `actions/deploy-pages@v4` to `github-pages` environment with URL output `${{ steps.deployment.outputs.page_url }}` for live browser testing of feature branches and releases.
+  6. Ensure `vite.config.ts` sets `base: './'` and all static assets in code (e.g. `src/terrain/TerrainManager.ts`, `src/main.ts`) reference relative paths (`'./assets/whistler-peak.glb'`) for seamless operation on GitHub Pages project subpaths (`/ogsnow/`).

@@ -125,7 +125,7 @@ export class GameApp {
 
     // Load .glb terrain model
     try {
-      await this.terrain.initialize('/assets/whistler-peak.glb');
+      await this.terrain.initialize('./assets/whistler-peak.glb');
     } catch {
       // TerrainManager automatically handles in-memory fallback
     }
@@ -156,7 +156,7 @@ export class GameApp {
 
     if (!this.terrain.terrainData.glbLoaded) {
       try {
-        await this.terrain.initialize('/assets/whistler-peak.glb');
+        await this.terrain.initialize('./assets/whistler-peak.glb');
       } catch {
         // Handled internally
       }

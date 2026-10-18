@@ -8,6 +8,15 @@ on:
       - 'feat/**'
   pull_request:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: 'pages'
+  cancel-in-progress: false
+
 jobs:
   build-and-test:
     name: Build, Test & E2E Verification
@@ -38,6 +47,11 @@ jobs:
       - name: Run Playwright E2E browser tests
         run: npm run test:e2e
 
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
       - name: Upload dist build artifact
         uses: actions/upload-artifact@v4
         if: always()
@@ -53,3 +67,16 @@ jobs:
           name: playwright-report
           path: playwright-report/
           if-no-files-found: ignore
+
+  deploy-pages:
+    name: Deploy to GitHub Pages
+    needs: build-and-test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

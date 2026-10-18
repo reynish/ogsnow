@@ -18,7 +18,7 @@ export class TerrainManager {
     this.rootGroup.name = 'terrain_root';
   }
 
-  public async initialize(glbUrl?: string): Promise<void> {
+  public async initialize(glbUrl: string = './assets/whistler-peak.glb'): Promise<void> {
     let glbBuffer: ArrayBuffer | null = null;
 
     if (glbUrl && typeof fetch === 'function') {
