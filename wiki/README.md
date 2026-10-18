@@ -1,0 +1,44 @@
+# ogSnow Architecture Wiki
+
+Welcome to the living architecture documentation for **ogSnow** (`feat/v1-core-game`), a browser-based 3D snowboarding game utilizing real-world topographical elevation data (`.glb` / DEM heightmaps), slope-driven physics, low-poly PS1 aesthetics, and a speed-reactive PS1 Jungle/Breakbeat Web Audio engine.
+
+> [!IMPORTANT]
+> **Mandatory Agent Compliance:** Every Execution, Testing, and CI/CD Sub-Agent MUST read this `wiki/` and all active ADRs in `wiki/adr/` prior to writing or modifying any file. Any implementation that deviates from the contracts in [interfaces.md](file:///Users/reynish/Projects/real-life-steep/wiki/interfaces.md) or violates an ADR in `wiki/adr/` will be rejected during verification.
+
+---
+
+## Navigation & Knowledge Base Index
+
+1. **[System Architecture (C4 Model & Diagrams)](./architecture.md)**
+   - C1: System Context Diagram
+   - C2: Container Diagram
+   - C3: Component Diagram
+   - C4: Code & Runtime Sequence Diagrams
+   - Data-Flow & State Synchronization
+2. **[Module Contracts, Interfaces & File Ownership](./interfaces.md)**
+   - Repository Directory Structure & Agent Ownership Boundaries
+   - Shared TypeScript Data Contracts (`src/types.ts`)
+   - Game Configuration Constants (`src/config.ts`)
+   - Exact Class & Function Signatures per Module
+   - E2E Inspection Hook (`window.__OGSNOW_STATE__`)
+3. **[Iteration 1 Task Decomposition (`feat/v1-core-game`)](./tasks.md)**
+   - Task 1: Project Scaffolding, Shared Types, & Flagship Mountain DEM/GLB Pipeline
+   - Task 2: Physics Engine, Low-Poly Snowboarder Character, Controls & Dynamic Follow Camera
+   - Task 3: Adaptive PS1 Jungle WebAudio Engine, Main Menu / Drop-In UI, HUD & Game Loop
+   - Task 4: Unit/Integration Suite (Vitest) & End-to-End Browser Verification (Playwright)
+   - Task 5: GitHub Actions CI/CD Pipeline (`.github/workflows/ci.yml`)
+4. **[Anything Decision Records (ADRs)](./adr/)**
+   - [ADR-0001: Build and Runtime Stack](./adr/0001-build-and-runtime-stack.md)
+   - [ADR-0002: 3D Rendering and Standardized GLB Terrain Pipeline](./adr/0002-3d-rendering-and-terrain-pipeline.md)
+   - [ADR-0003: Slope Physics, Collision, and Snowboard Controls](./adr/0003-physics-and-controls.md)
+   - [ADR-0004: Adaptive PS1 Jungle Procedural WebAudio Engine](./adr/0004-adaptive-jungle-audio-engine.md)
+   - [ADR-0005: Automated Testing, E2E Browser Verification, and CI/CD](./adr/0005-testing-e2e-and-cicd.md)
+
+---
+
+## Architectural Principles
+
+1. **Zero-Friction Browser Delivery:** Instant loading in modern desktop web browsers with zero external binary dependencies required at runtime beyond bundled assets.
+2. **Real-World Topographical Fidelity:** Flagship mountain (*Whistler Peak — Harmony Ridge / Peak Express*) derived from deterministic DEM elevation grids and standardized `.glb` (`glTF 2.0` binary) terrain serialization.
+3. **Momentum-Coupled Audio-Visual Feedback:** Speed, slope pitch, carving angle, and airtime directly drive camera FOV/offset and real-time Web Audio stem mixing (ambient pad, 170 BPM Amen breakbeat, sub-bass, wind noise, snow carve filter).
+4. **Deterministic Testability:** Every core subsystem (Terrain, Physics, Audio, Camera, UI) can run deterministically in both headless unit tests (Vitest) and headless Chromium WebGL E2E tests (Playwright) via `window.__OGSNOW_STATE__`.
