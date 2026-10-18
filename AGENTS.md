@@ -16,7 +16,7 @@
 
 \* **Dynamic Model Selection &amp; Cost Efficiency:** Dynamically select the model tier for each Sub-Agent based on task complexity—spawning an Architecture Sub-Agent on a larger model when system design or technical specifications are required, and defaulting to smaller, lower-cost models (`flash`, `flash_lite`, `haiku`) for well-scoped implementation, testing, and CI tasks.
 
-\* **Architecture &amp; Task Decomposition:** Do not design system architecture directly. Spawn an Architecture Sub-Agent to define file structure, data contracts/interfaces, and granular task specs, then dispatch those self-contained tasks to smaller, cheaper Execution Sub-Agents.
+\* **Architecture &amp; Task Decomposition:** Do not design system architecture directly. Spawn an Architecture Sub-Agent to create/update the `wiki/` documentation, define file structure, data contracts/interfaces, and granular task specs, then dispatch those self-contained tasks to smaller, cheaper Execution Sub-Agents.
 
 \* **Execution:** Spawn autonomous background processes using the host shell (or built-in sub-agent runner configured with the selected model tier).
 
@@ -28,6 +28,16 @@
 
 \* **Parallelization:** Spawn multiple sub-agents simultaneously for decoupled tasks (e.g., database schema vs. UI components).
 
+## Architecture Knowledge Base &amp; ADRs (`wiki/`)
+
+\* **Living Repository Wiki (`wiki/`):** Maintain a `wiki/` folder of Markdown files documenting core architectural choices, patterns, and module descriptions so sub-agents can quickly understand the repository before making changes. This documentation must be kept continuously up to date with every change.
+
+\* **C4 Model Documentation:** Structure the architecture overview in `wiki/` around the **C4 model** (System Context, Containers, Components, and Code/Interfaces) to provide clear, hierarchical views of how the game and its subsystems fit together.
+
+\* **Anything Decision Records (`wiki/adr/`):** Document all key architectural, library, tooling, and convention decisions as numbered **ADRs (Anything Decision Records)** in `wiki/adr/` (capturing context, decision, consequences, and compliance rules).
+
+\* **Strict Repository-Wide Enforcement:** Instruct every spawned sub-agent to consult `wiki/` and `wiki/adr/` prior to implementation. Once an ADR is adopted, it is strictly enforced across the entire repository and by all agents; any task that violates an active ADR or leaves `wiki/` out of sync with the codebase must be rejected during verification.
+
 ## Monitoring &amp; Intervention
 
 \* **Process Tracking:** Use standard POSIX tools (`jobs`, `ps aux`, `pgrep`) to verify sub-agent state.
@@ -38,18 +48,18 @@
 
 ## Review &amp; Consolidation
 
-\* **Verification:** Parse target files and termination logs only after the background process exits.
+\* **Verification:** Parse target files, `wiki/` updates, ADR compliance, and termination logs only after the background process exits.
 
 \* **Automated Testing:** Require sub-agents to write and run unit and integration tests for all new features and fixes to verify their work.
 
 \* **End-to-End Browser Verification:** Spawn or instruct sub-agents to build and execute automated end-to-end (E2E) browser tests (e.g., Playwright) that launch the game in a real browser, simulate gameplay interactions, verify rendering/state transitions, and assert zero console or runtime errors.
 
-\* **Iteration:** Spawn a new "Fixer" sub-agent, passing it the error trace, if the original execution fails, tests fail, or requirements are missed.
+\* **Iteration:** Spawn a new "Fixer" sub-agent, passing it the error trace, if the original execution fails, tests fail, ADRs are violated, or requirements are missed.
 
 \* **User Reporting:** Summarize the final, verified state for the user only after all delegated sub-tasks and test suites successfully resolve.
 
 ## Version Control &amp; CI/CD
 
-\* **Git Commits:** Ensure all verified changes, tests, and workflows are staged and committed to Git with clear, atomic commit messages once verification passes.
+\* **Git Commits:** Ensure all verified changes, `wiki/` documentation, ADRs, tests, and workflows are staged and committed to Git with clear, atomic commit messages once verification passes.
 
 \* **GitHub Actions:** Delegate the creation and maintenance of GitHub Actions workflows (`.github/workflows/`) to automatically build, test, run E2E browser verification, and deploy the game on push and pull requests.
