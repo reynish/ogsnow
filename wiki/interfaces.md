@@ -118,7 +118,7 @@ export interface PlayerState {
   velocity: Vector3Like;
   speedMs: number;          // Speed in meters/second
   speedKmh: number;         // Speed in km/h (speedMs * 3.6)
-  headingRad: number;       // Yaw angle in radians (0 = -Z downhill)
+  headingRad: number;       // Yaw angle in radians (0 = +Z downhill; steer = +1 decrements headingRad toward world -X / screen right)
   pitchRad: number;         // Slope pitch angle in radians
   rollRad: number;          // Board edge/lean roll angle in radians
   carveAngleRad: number;    // Angle between board heading and velocity vector
@@ -177,6 +177,8 @@ export interface GameConfig {
 
 export interface OGSnowGlobalState {
   mode: GameMode;
+  ready?: boolean;
+  webglActive?: boolean;
   mountainName: string;
   activeDropZoneId: string;
   frameCount: number;
@@ -203,6 +205,7 @@ declare global {
       stepSimulation: (dtSeconds: number, overrideInput?: Partial<PlayerInput>) => void;
       setInputOverride: (overrideInput: Partial<PlayerInput> | null) => void;
       triggerCrashForTest: () => void;
+      setPaused?: (paused: boolean) => void;
     };
   }
 }
@@ -277,13 +280,13 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
 
 **`src/terrain/glbPipeline.ts`:**
 - `generateWhistlerDEM(width?: number, length?: number, segmentsX?: number, segmentsZ?: number): TerrainData`
-  - Deterministically synthesizes the Whistler Peak DEM elevation matrix (`Float32Array`), drop zones, and obstacle placements (trees, rocks, cliffs) with an average downhill slope from `-Z` (summit, higher Y) to `+Z` (base, lower Y), natural alpine bowls, ridges, and rollers. Ensures a clear navigable central corridor around each drop zone spawn point so players do not immediately collide on spawn.
+  - Deterministically synthesizes the Whistler Peak DEM elevation matrix (`Float32Array`), drop zones, and obstacle placements (trees, rocks, cliffs) with an average downhill slope from `-Z` (summit, `2,182m`) to `+Z` (base, `1,520m`), strictly clamping/normalizing elevations within `[1520, 2182]` meters. Ensures both a `25m` radial obstacle-free clearance around each drop zone spawn point AND a clear downhill fall-line corridor (`|x - spawnX| < 18m` for `z` in `[spawnZ, spawnZ + 80m]`) so players do not collide immediately after spawning.
 - `buildTerrainMeshFromDEM(data: TerrainData): THREE.Mesh`
-  - Constructs a low-poly `THREE.BufferGeometry` with flat-shaded vertex normals and vertex colors (snow whites, icy blues, steep rock grays) + `MeshLambertMaterial` or `MeshStandardMaterial` with `flatShading: true`.
+  - Constructs a low-poly `THREE.BufferGeometry` with flat-shaded vertex normals and vertex colors (snow whites, icy blues, steep rock grays) + `MeshLambertMaterial` or `MeshStandardMaterial` with `flatShading: true`, and embeds `terrainMetadata` (`mountainId`, `mountainName`, `region`, `width`, `length`, `segmentsX`, `segmentsZ`, `minElevation`, `maxElevation`, `dropZones`, `obstacles`) in `mesh.userData.terrainMetadata`.
 - `exportTerrainToGLBBuffer(mesh: THREE.Object3D): Promise<ArrayBuffer>`
-  - Uses Three.js `GLTFExporter` (`binary: true`) to serialize the 3D terrain mesh into a valid glTF 2.0 `.glb` binary `ArrayBuffer` ( verifying magic header `0x46546C67` / `"glTF"`).
+  - Uses Three.js `GLTFExporter` (`binary: true`) to serialize the 3D terrain mesh into a valid glTF 2.0 `.glb` binary `ArrayBuffer` (verifying magic header `0x46546C67` / `"glTF"`).
 - `parseTerrainFromGLBBuffer(buffer: ArrayBuffer): Promise<THREE.Group>`
-  - Uses Three.js `GLTFLoader.parse` to hydrate a `.glb` binary buffer back into a renderable `THREE.Group`.
+  - Uses Three.js `GLTFLoader.parse` to hydrate a `.glb` binary buffer back into a renderable `THREE.Group`, enforcing `material.flatShading = true` and `material.needsUpdate = true` on every loaded `THREE.Mesh` child and preserving `userData.terrainMetadata`.
 
 **`src/terrain/TerrainManager.ts`:**
 ```typescript
@@ -303,6 +306,7 @@ export class TerrainManager {
   public checkObstacleCollision(position: Vector3Like, radius?: number): TerrainObstacle | null;
 }
 ```
+- `initialize(glbUrl?)` MUST be idempotent (caching its in-flight `Promise<void>`) so concurrent calls never duplicate `terrain_mesh_group` or `terrain_obstacles` inside `rootGroup`.
 
 ---
 
@@ -323,15 +327,18 @@ export class PhysicsEngine {
   public forceCrash(): void;
 }
 ```
-**Key Physics Behavior Requirements:**
-1. Uses `cannon-es` (`CANNON.World`, `CANNON.Body`, `CANNON.Sphere`) coupled with `TerrainManager.getHeightAt(x, z)` and `getNormalAt(x, z)` for rock-solid high-speed continuous terrain contact without tunneling.
-2. Downhill acceleration is proportional to `config.gravity * sin(slopePitch)` along the downhill tangent vector.
-3. Steering (`input.steer`) rotates `headingRad` and tilts `rollRad`.
-4. Carving (`input.carve` or sharp steering angular delta) increases `carveAngleRad` and `carveIntensity`, applying lateral edge grip and speed deceleration (`carveDragCoefficient`).
+**Key Physics Behavior Requirements (per ADR-0003 & ADR-0006):**
+1. Uses `cannon-es` (`CANNON.World`, `CANNON.Body`, `CANNON.Sphere`) coupled with `TerrainManager.getHeightAt(x, z)` and `getNormalAt(x, z)` for rock-solid high-speed continuous terrain contact without tunneling, with fixed sub-stepping (`<= 1/60s`) and `Number.isFinite(dtSeconds)` guards.
+2. Downhill acceleration is along `+Z` (from `-Z` summit to `+Z` base) proportional to `config.gravity * sin(slopePitch)` along the downhill tangent vector. `headingRad = 0` points straight downhill along `+Z` with forward vector `(sin(headingRad), cos(headingRad))`.
+3. Steering (`input.steer`): Because `FollowCamera` sits behind the player looking toward `+Z` with world up `+Y`, camera right in Three.js right-handed coordinates is world `-X`. Therefore `steer = +1` (`ArrowRight`/`KeyD`) MUST decrement `headingRad` (`headingRad -= input.steer * config.steerRateRadPerSec * dt`) to turn toward world `-X` (screen right, `NDC x > 0`), and `rollRad` leans into the turn (`rollRad = -input.steer * 0.35`).
+4. Carving (`input.carve` or sharp steering angular delta) increases `carveAngleRad` and `carveIntensity`, applying lateral edge grip and linear speed deceleration (`carveDragCoefficient * carveIntensity * speedMs`).
 5. Tucking (`input.tuck`) reduces aerodynamic drag and increases downhill acceleration.
-6. Jumping (`input.jump` while `isGrounded === true`) imparts upward vertical velocity (`config.jumpImpulse`), transitioning `isGrounded` to `false` and accumulating `airtimeSeconds`.
-7. Obstacle collision (`terrain.checkObstacleCollision`) triggers `isCrashed = true`, zeroes or sharply reduces forward momentum, sets `crashTimerSeconds = config.crashRecoverySeconds`, and auto-recovers when the timer expires.
-8. Out-of-bounds clamping keeps `x` within `[-width/2 + 8, width/2 - 8]` and wraps or resets cleanly if reaching the bottom boundary (`z > length/2 - 10`).
+6. Jumping (`input.jump` while `isGrounded === true` and `!isCrashed`) is **edge-triggered** (rising edge only) and imparts upward vertical velocity (`config.jumpImpulse`), transitioning `isGrounded` to `false` and accumulating `airtimeSeconds`.
+7. Obstacle collision (`terrain.checkObstacleCollision(position, 1.1)`):
+   - Always pushes the rider radially outside `obs.radius + 1.1`.
+   - Below `config.crashSpeedThresholdKmh` (`28 km/h`), deflects velocity along the contact normal without triggering a wipeout (`isCrashed` remains `false`).
+   - At or above `config.crashSpeedThresholdKmh` (`28 km/h`), triggers `isCrashed = true`, reduces speed by 85%, sets `crashTimerSeconds = config.crashRecoverySeconds`, halts slope gravity acceleration during recovery, and applies crash friction until the timer expires.
+8. Out-of-bounds clamping keeps `x` within `[-width/2 + 8, width/2 - 8]` (nudging `headingRad` inward to prevent wall grinding) and cleanly wraps/resets to the active drop zone when reaching the bottom boundary (`z >= length/2 - 15`).
 
 ---
 
@@ -349,7 +356,7 @@ export class PlayerController {
   public dispose(): void;
 }
 ```
-- Maps `KeyA` / `ArrowLeft` (`steer = -1`), `KeyD` / `ArrowRight` (`steer = +1`), `KeyS` / `ArrowDown` (`carve = 1.0`), `KeyW` / `ArrowUp` (`tuck = true`), `Space` (`jump = true`), `KeyR` (`reset = true`).
+- Maps `KeyA` / `ArrowLeft` (`steer = -1`), `KeyD` / `ArrowRight` (`steer = +1`), `KeyS` / `ArrowDown` (`carve = 1.0`), `KeyW` / `ArrowUp` (`tuck = true`), `Space` (`jump = true`), `KeyR` (`reset = true`), calling `e.preventDefault()` on game control keys so `Space` or arrow keys never scroll or activate focused DOM buttons.
 
 **`src/player/SnowboardCharacter.ts`:**
 ```typescript
@@ -378,6 +385,7 @@ export class FollowCamera {
 
   constructor(aspect: number, config?: GameConfig, terrain?: TerrainManager);
   public update(playerState: PlayerState, dtSeconds: number): CameraState;
+  public snap(playerState: PlayerState): CameraState;
   public resize(aspect: number): void;
   public getState(): CameraState;
 }

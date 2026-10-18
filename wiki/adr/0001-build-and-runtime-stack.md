@@ -37,6 +37,7 @@ We adopt the following core build and runtime stack:
    - `"preview": "vite preview --port 4173"`
    - `"test": "vitest run"`
    - `"test:e2e": "playwright test"`
+   - `"generate-glb": "tsx scripts/generate-glb.ts"`
 2. `.gitignore` MUST ignore `node_modules/`, `dist/`, `.logs/`, `playwright-report/`, and `test-results/`.
 3. All source files MUST reside in `src/` and compile with zero TypeScript errors.
-4. `GameApp` in `src/main.ts` MUST support both hardware WebGL rendering (`THREE.WebGLRenderer`) and a resilient fallback mock/canvas context if a headless container lacks GPU drivers, ensuring zero unhandled runtime exceptions.
+4. `GameApp` in `src/main.ts` MUST support both hardware WebGL rendering (`THREE.WebGLRenderer`) and a resilient fallback mock/canvas context if a headless container lacks GPU drivers, reporting `webglActive: boolean` and `ready: boolean` in `window.__OGSNOW_STATE__` and ensuring zero unhandled runtime exceptions.

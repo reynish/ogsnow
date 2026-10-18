@@ -111,8 +111,8 @@ flowchart TD
 | `PhysicsEngine` | `src/physics/PhysicsEngine.ts` | `cannon-es` world + slope-aligned snowboard dynamics: gravity projection along slope normal, carving deceleration, edge grip, obstacle/boundary collisions, crash recovery, and airtime detection. |
 | `InputController` | `src/player/PlayerController.ts` | Captures keyboard (`WASD` / Arrow keys / `Space` / `R`) and Gamepad inputs, plus programmatic input injection for E2E testing. |
 | `SnowboardCharacter` | `src/player/SnowboardCharacter.ts` | Low-poly PS1-style 3D snowboarder + board mesh hierarchy with procedural lean, carve tilt, pitch alignment, and snow spray particles. |
-| `FollowCamera` | `src/camera/FollowCamera.ts` | Third-person dynamic chase camera that interpolates position, look-at target, pitch tilt, and FOV (`60°` to `85°`) based on speed and slope pitch. |
-| `JungleAudioEngine` | `src/audio/JungleAudioEngine.ts` | Web Audio API procedural 170 BPM PS1 Jungle/Amen breakbeat synthesizer & mixer: ambient pad stem, bassline stem, breakbeat drum stem, wind noise generator, and snow-carve bandpass filter. |
+| `FollowCamera` | `src/camera/FollowCamera.ts` | Third-person dynamic chase camera that interpolates position, look-at target, pitch tilt, and FOV (`62°` to `84°`) based on speed and slope pitch, with instant snap on drop-in/reset. |
+| `JungleAudioEngine` | `src/audio/JungleAudioEngine.ts` | Web Audio API procedural 170 BPM PS1 Jungle/Amen breakbeat synthesizer & mixer: atmospheric pad stem, bassline stem (`> 15 km/h`), breakbeat drum stem (`> 30 km/h`, full `>= 60 km/h`), wind noise generator, and snow-carve bandpass filter. |
 | `HUDManager` | `src/ui/HUDManager.ts` | Main menu mountain/drop-zone selector, HUD speedometer (`km/h`), altitude/vertical drop meter, audio stem activity indicators, and crash/airtime notifications. |
 | `GameApp` | `src/main.ts` | Top-level lifecycle orchestrator, `requestAnimationFrame` loop, deterministic `step(dt)` hook, and `window.__OGSNOW_STATE__` publisher. |
 
@@ -131,16 +131,16 @@ sequenceDiagram
     participant Phys as PhysicsEngine
     participant Audio as JungleAudioEngine
 
-    App->>Terrain: initialize() (Load/Generate Whistler Peak .glb & DEM)
+    App->>Terrain: initialize() (Idempotent load/hydrate Whistler Peak .glb & DEM)
     Terrain-->>App: TerrainData & Three.js Group ready
-    App->>UI: renderMainMenu(mountain, dropZones)
-    App->>App: Publish window.__OGSNOW_STATE__ (mode = "menu")
-    User->>UI: Click Drop Zone (e.g. "Summit Ridge - 2,182m")
+    App->>UI: renderMainMenu(mountain, dropZones) & enable drop-in buttons
+    App->>App: Publish window.__OGSNOW_STATE__ (mode = "menu", ready = true)
+    User->>UI: Click Drop Zone (e.g. "Peak Express Summit - 2,182m")
     UI->>App: onDropIn(dropZoneId)
-    App->>Phys: resetPlayerAtDropZone(dropZone)
-    App->>Audio: start() & resume AudioContext
-    App->>UI: switchToHUD()
-    App->>App: Publish window.__OGSNOW_STATE__ (mode = "riding")
+    App->>Phys: resetAtDropZone(dropZone)
+    App->>Audio: init() & resume AudioContext
+    App->>UI: setMode("riding")
+    App->>App: Publish window.__OGSNOW_STATE__ (mode = "riding", ready = true)
 ```
 
 ### 4.2 Per-Frame Game Loop (`tick(dt)`)
@@ -156,12 +156,12 @@ sequenceDiagram
     participant Audio as JungleAudioEngine
     participant UI as HUDManager
 
-    App->>Input: getInputState()
+    App->>Input: getInput()
     Input-->>App: PlayerInput (steer, carve, tuck, jump, reset)
     App->>Phys: step(dt, input)
     Phys->>Terrain: getHeightAt(x, z) & getNormalAt(x, z)
-    Terrain-->>Phys: elevation, slopeNormal,slopePitch
-    Phys->>Terrain: checkObstacleCollisions(position, radius)
+    Terrain-->>Phys: elevation, slopeNormal, slopePitch
+    Phys->>Terrain: checkObstacleCollision(position, radius)
     Terrain-->>Phys: collisionResult
     Phys-->>App: Updated PlayerState (pos, vel, speedKmh, carveAngle, isGrounded, isCrashed)
     App->>Char: update(playerState, dt)
@@ -177,21 +177,21 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    State["PlayerState (speedKmh, carveAngle, isGrounded, isCrashed)"]
+    State["PlayerState (speedKmh, carveIntensity, isGrounded, isCrashed)"]
     
     subgraph Mixer["JungleAudioEngine (170 BPM Procedural Web Audio)"]
         Pad["Atmospheric Pad Stem (Always Active: Gain 0.35 - 0.70)"]
-        Bass["Reese / Sub-Bass Stem (Fades in > 18 km/h)"]
-        Drums["170 BPM Amen Breakbeat Stem (Fades in > 32 km/h, Full > 55 km/h)"]
-        Wind["Procedural Wind Filter (Pitch & Gain scale 0 - 100 km/h)"]
-        Carve["Snow Carve Noise (Scales with |carveAngle| * speed & grounded)"]
+        Bass["Reese / Sub-Bass Stem (Fades in > 15 km/h, Full at 45 km/h)"]
+        Drums["170 BPM Amen Breakbeat Stem (Fades in > 30 km/h, Full >= 60 km/h)"]
+        Wind["Procedural Wind Filter (Pitch 220-1400Hz & Gain scale 0 - 115 km/h)"]
+        Carve["Snow Carve Noise (Scales with carveIntensity * speed & grounded)"]
     end
 
-    CrashLogic{"isCrashed == true?"}
+    CrashLogic{"isCrashed == true or mode == 'menu' or speedKmh < 15?"}
 
     State --> CrashLogic
-    CrashLogic -->|"Yes"| Duck["Duck Drums & Bass to 0.0, Boost Ambient Pad"]
-    CrashLogic -->|"No"| SpeedMap["Map speedKmh & carveAngle to Stem Gains"]
+    CrashLogic -->|"Yes"| Duck["Duck Drums & Bass to 0.0, Keep Ambient Pad (activeStems = ['pad'])"]
+    CrashLogic -->|"No"| SpeedMap["Map speedKmh & carveIntensity to Stem Gains"]
     SpeedMap --> Pad
     SpeedMap --> Bass
     SpeedMap --> Drums
