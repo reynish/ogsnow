@@ -4,7 +4,7 @@
 
 ogSnow is a browser-based 3D snowboarding game that bridges the gap between digital gaming and real-world exploration. By utilizing real topographical data and 3D maps of actual ski resorts, players can drop in and snowboard down their favorite real-world mountains directly from their web browser—no downloads or heavy installations required. 
 
-The game combines the accessibility of web gaming with the thrill of extreme sports, starting with a focused Minimum Viable Product (MVP) and scaling to a massive, multi-mountain platform.
+The game combines the accessibility of web gaming with the thrill of extreme sports, delivering an authentic, real-mountain snowboarding experience directly in the browser.
 
 ---
 
@@ -46,9 +46,9 @@ The game combines the accessibility of web gaming with the thrill of extreme spo
 
 ---
 
-## 5. MVP (Minimum Viable Product) Features
+## 5. Core Features
 
-*Phase 1 focuses on proving the core mechanics, map import pipeline, and audio systems.*
+*This target iteration delivers the core snowboarding mechanics, real-world map import pipeline, and adaptive audio systems.*
 
 \*   **Single Flagship Mountain:** One highly polished, accurate 3D map of a well-known real-world ski run (e.g., a specific peak in Whistler, BC or Chamonix, France).
 
@@ -66,13 +66,13 @@ The game combines the accessibility of web gaming with the thrill of extreme spo
 
 \*   **Dynamic Camera:** A third-person follow camera that adjusts based on speed and slope pitch.
 
-\*   **V1 Adaptive Audio:** A basic implementation of the speed-linked drum and bass music system.
+\*   **Adaptive Audio:** Speed-linked drum and bass music system paired with dynamic wind and snow-carving sound effects.
 
 ---
 
 ## 6. Technical Specifications &amp; Architecture
 
-\*   **Platform:** Web Browser (Desktop optimized first, mobile scaling considered for later).
+\*   **Platform:** Web Browser (Desktop optimized).
 
 \*   **Engine:** Three.js, Babylon.js, or Unity WebGL. (Three.js or Babylon.js are highly recommended for optimal browser performance and fast load times).
 
@@ -87,37 +87,3 @@ The game combines the accessibility of web gaming with the thrill of extreme spo
 \*   **Physics Engine:** Cannon.js or Ammo.js to handle the complex physics of a board sliding on uneven, sloped terrain.
 
 \*   **Asset Format:** `.glTF` / `.glb` for all 3D models (terrain, character, snowboard) to ensure rapid loading over standard internet connections.
-
----
-
-## 7. Future Roadmap (Post-MVP)
-
-### Phase 2: The Resort Expansion
-
-\*   **Multiple Mountains:** Adding 3-5 new real-world locations.
-
-\*   **Trick System:** Jumping, grabbing, and basic spins, with the music reacting to massive airtime (e.g., bass drops upon landing).
-
-\*   **Scoring &amp; Leaderboards:** Time trials and points for finding the fastest or most creative lines down the mountain.
-
-\*   **Procedural Environment Details:** Automatically populating the real-world map with trees, rocks, and ski-lifts based on satellite imagery data.
-
-### Phase 3: Community &amp; Customization
-
-\*   **Multiplayer / Ghosts:** See other players riding the same mountain in real-time, or race against their "ghost" data.
-
-\*   **Character Customization:** Unlocking new snowboards, jackets, and gear.
-
-\*   **Custom Drops:** Allowing players to drop a pin anywhere on the 3D map to start their run, even in out-of-bounds back-country areas.
-
-\*   **Weather &amp; Time of Day:** Dynamic lighting, snowfall, and night-riding capabilities.
-
----
-
-## 8. Monetization Strategy (Optional/Future)
-
-\*   **Freemium Model:** 2-3 basic mountains are free. Premium mountains (famous resorts) require a one-time unlock or subscription.
-
-\*   **Cosmetics:** Microtransactions for licensed snowboard gear, branded apparel, and unique board designs.
-
-\*   **Resort Partnerships:** Partnering with real-world ski resorts to feature their slopes as a marketing tool.
