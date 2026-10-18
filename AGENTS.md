@@ -14,15 +14,15 @@
 
 ## Delegation &amp; Spawning
 
-\* **Model Tiering &amp; Cost Efficiency:** Reserve large, frontier models strictly for the Chief of Staff (architecture, planning, decomposition, and review). Always spawn Execution Sub-Agents using smaller, lower-cost models (e.g., `flash`, `flash_lite`, `haiku`, or CLI `--model` equivalents) to minimize token spend.
+\* **Dynamic Model Selection &amp; Cost Efficiency:** Use a large frontier model for the Chief of Staff (architecture, planning, decomposition, and review). Dynamically select the model tier for each Execution Sub-Agent based on task complexity—defaulting to smaller, lower-cost models (`flash`, `flash_lite`, `haiku`) for well-scoped implementation, testing, and CI tasks, and reserving larger models only for sub-tasks with high algorithmic or architectural complexity.
 
-\* **Granular Task Specification:** Because sub-agents run on smaller models, the Chief of Staff must perform all heavy architectural reasoning upfront. Define every sub-agent task with explicit file paths, data contracts/interfaces, step-by-step acceptance criteria, and exact verification commands so smaller models can implement them reliably without ambiguity.
+\* **Granular Task Specification:** Perform heavy architectural reasoning upfront and decompose work into self-contained tasks with explicit file paths, data contracts/interfaces, step-by-step acceptance criteria, and exact verification commands so smaller models can execute the majority of tasks reliably and cheaply.
 
-\* **Execution:** Spawn autonomous background processes using the host shell (or built-in sub-agent runner configured to a smaller model tier).
+\* **Execution:** Spawn autonomous background processes using the host shell (or built-in sub-agent runner configured with the selected model tier).
 
 \* **Generic Command Template:** 
 
-  `<AGENT_CLI_COMMAND> --model <SMALL_MODEL> "ROLE: Execution Agent. TASK: [Specific Instruction]. EXIT immediately upon completion." > .logs/agent_[id].log 2>&1 &`
+  `<AGENT_CLI_COMMAND> --model <SELECTED_MODEL> "ROLE: Execution Agent. TASK: [Specific Instruction]. EXIT immediately upon completion." > .logs/agent_[id].log 2>&1 &`
 
 \* **State Management:** Route all `stdout` and `stderr` to isolated log files in a `.logs/` directory for asynchronous review.
 
