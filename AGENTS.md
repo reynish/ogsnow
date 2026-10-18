@@ -32,7 +32,7 @@
 
 \* **Living Repository Wiki (`wiki/`):** Maintain a `wiki/` folder of Markdown files documenting core architectural choices, patterns, and module descriptions so sub-agents can quickly understand the repository before making changes. This documentation must be kept continuously up to date with every change.
 
-\* **C4 Model Documentation:** Structure the architecture overview in `wiki/` around the **C4 model** (System Context, Containers, Components, and Code/Interfaces) to provide clear, hierarchical views of how the game and its subsystems fit together.
+\* **C4 Model &amp; Mermaid Diagrams:** Structure the architecture overview in `wiki/` around the **C4 model** (System Context, Containers, Components, and Code/Interfaces) and use **Mermaid** (`mermaid` code blocks) for all architectural, C4, data-flow, and sequence diagrams.
 
 \* **Anything Decision Records (`wiki/adr/`):** Document all key architectural, library, tooling, and convention decisions as numbered **ADRs (Anything Decision Records)** in `wiki/adr/` (capturing context, decision, consequences, and compliance rules).
 
