@@ -75,6 +75,19 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     expect(state.mode).toBe('menu');
     expect(state.ready).toBe(true);
     expect(state.webglActive).toBe(true);
+
+    // ADR-0007: Verify real terrain provenance in telemetry
+    expect(state.terrain.realWorld).toBe(true);
+    expect(state.terrain.maxElevation).toBeGreaterThan(2100);
+    expect(state.terrain.minElevation).toBeLessThan(1600);
+    expect(state.terrain.attribution).toBeDefined();
+    expect(state.terrain.attribution!.length).toBeGreaterThanOrEqual(1);
+    expect(state.terrain.source).toContain('aws-terrarium');
+
+    // ADR-0007: Attribution element visible in main menu
+    const attributionEl = page.locator('[data-testid="terrain-attribution"]');
+    await expect(attributionEl).toBeVisible();
+    await expect(attributionEl).toContainText('AWS Open Data');
   });
 
   test('2. Drop zone selection transitions mode to riding, loads GLB terrain, and shows HUD', async ({
@@ -106,6 +119,23 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     await expect(speedEl).toBeVisible();
     await expect(altitudeEl).toBeVisible();
     await expect(stemsEl).toBeVisible();
+
+    // ADR-0007: HUD altitude reflects imported real elevation (NOT 2182)
+    const altitudeText = await altitudeEl.textContent();
+    const altitudeVal = parseInt(altitudeText ?? '0', 10);
+    // Summit spawn is ~2152 m; altitude should be around that, not 2182
+    expect(altitudeVal).toBeGreaterThan(1900);
+    expect(altitudeVal).toBeLessThan(2300);
+    // It must NOT be exactly 2182 (the old synthetic clamp)
+    expect(altitudeVal).not.toBe(2182);
+
+    // ADR-0007: Terrain artifacts loaded from bundled relative URLs
+    // (verified by successful GLB load + manifest data present)
+    expect(state.terrain.demFormatVersion).toBeDefined();
+    expect(state.terrain.demFormatVersion).toBeGreaterThanOrEqual(1);
+    expect(state.terrain.source).toContain('aws-terrarium');
+    expect(state.terrain.attribution).toBeDefined();
+    expect(state.terrain.attribution!.length).toBeGreaterThanOrEqual(1);
   });
 
   test('3. Downhill riding increases speed, moves downhill (+Z), transitions audio stems, and scales wind', async ({
@@ -116,7 +146,8 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     await page.waitForFunction(() => window.__OGSNOW_STATE__.mode === 'riding');
 
     const initialState = await page.evaluate(() => window.__OGSNOW_STATE__);
-    expect(initialState.player.position.z).toBeCloseTo(-520, 0);
+    // Real terrain summit-express spawn is at z ≈ 150 (not -520 from synthetic)
+    expect(initialState.player.position.z).toBe(150);
 
     // Progress simulation downhill
     await page.evaluate(() => {
