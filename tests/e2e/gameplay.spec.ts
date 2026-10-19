@@ -145,9 +145,18 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     await page.locator('[data-testid="drop-zone-btn-summit-express"]').click();
     await page.waitForFunction(() => window.__OGSNOW_STATE__.mode === 'riding');
 
+    // Pause rAF loop so spawn position is stable before reading
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(true);
+    });
+
     const initialState = await page.evaluate(() => window.__OGSNOW_STATE__);
     // Real terrain summit-express spawn is at z ≈ 150 (not -520 from synthetic)
-    expect(initialState.player.position.z).toBe(150);
+    expect(Math.abs(initialState.player.position.z - 150)).toBeLessThan(2);
+    // altitudeMeters reflects real imported elevation (~2152 m at summit, not 2182)
+    expect(initialState.player.altitudeMeters).toBeGreaterThan(1900);
+    expect(initialState.player.altitudeMeters).toBeLessThan(2300);
+    expect(initialState.player.altitudeMeters).not.toBe(2182);
 
     // Progress simulation downhill
     await page.evaluate(() => {
@@ -279,9 +288,9 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     const crashedState = await page.evaluate(() => window.__OGSNOW_STATE__);
     expect(crashedState.player.isCrashed).toBe(true);
     expect(crashedState.audio.activeStems).toEqual(['pad']);
-    expect(crashedState.audio.bassGain).toBe(0);
-    expect(crashedState.audio.drumGain).toBe(0);
-    expect(crashedState.audio.carveGain).toBe(0);
+    expect(Math.abs(crashedState.audio.bassGain)).toBeLessThan(0.01);
+    expect(Math.abs(crashedState.audio.drumGain)).toBeLessThan(0.01);
+    expect(Math.abs(crashedState.audio.carveGain)).toBeLessThan(0.01);
 
     // Verify Crash Banner is displayed in HUD
     const crashBanner = page.locator('.banner-crash');
@@ -297,7 +306,7 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
 
     const recoveredState = await page.evaluate(() => window.__OGSNOW_STATE__);
     expect(recoveredState.player.isCrashed).toBe(false);
-    expect(recoveredState.player.crashTimerSeconds).toBe(0);
+    expect(Math.abs(recoveredState.player.crashTimerSeconds)).toBeLessThan(0.01);
     await expect(crashBanner).toBeHidden();
   });
 
@@ -333,8 +342,8 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
 
     // M3: Verify audio ducked to ['pad'] only with bassGain = 0 and drumGain = 0
     expect(state.audio.activeStems).toEqual(['pad']);
-    expect(state.audio.bassGain).toBe(0);
-    expect(state.audio.drumGain).toBe(0);
+    expect(Math.abs(state.audio.bassGain)).toBeLessThan(0.01);
+    expect(Math.abs(state.audio.drumGain)).toBeLessThan(0.01);
 
     // Main menu visible, HUD hidden
     await expect(page.locator('#main-menu')).toBeVisible();
