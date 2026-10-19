@@ -1,4 +1,4 @@
-export type GameMode = 'menu' | 'riding' | 'paused';
+export type GameMode = 'menu' | 'riding' | 'paused' | 'error';
 
 export interface Vector3Like {
   x: number;
@@ -94,6 +94,7 @@ export interface TerrainManifest {
   license: string;
   attribution: string[];
   sampledControlPoints: SampledControlPoint[];
+  treeLineElevationM?: number;
   dropZones?: DropZone[];
   obstacles?: TerrainObstacle[];
   derivation?: TerrainDerivation;

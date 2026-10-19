@@ -162,16 +162,22 @@ describe('terrainSource — Geodesy & Coordinate Transforms', () => {
     }
   });
 
-  it('with downhill azimuth 180 (due south), ENU north vector maps to game -Z', () => {
-    // At azimuth 180: x_game = east·(-1) − north·0 = −east
+  it('with downhill azimuth 180 (due south), ENU north vector maps to game -Z and West maps to screen-right (-X) (M2)', () => {
+    // At azimuth 180: x_game = -east·(-1) + north·0 = +east
     //                z_game = east·0 + north·(-1) = −north
-    const e = 100.0;
+    const e = 100.0; // East
     const n = 200.0;
     const { x, z } = enuToGame(e, n, 180);
 
-    // North is down in ENU; at azimuth 180, north points to -z in game space
+    // North points to -z in game space (summit/uphill)
     expect(z).toBeCloseTo(-n, 8);
-    expect(x).toBeCloseTo(-e, 8);
+    // Real-world East maps to screen-left (+X); real-world West maps to screen-right (-X) (M2)
+    expect(x).toBeCloseTo(e, 8);
+
+    // Verify West (e = -100) maps to world -X (screen-right)
+    const westPt = enuToGame(-100.0, n, 180);
+    expect(westPt.x).toBeCloseTo(-100.0, 8);
+    expect(westPt.x).toBeLessThan(0);
 
     // Inverse
     const { eastM, northM } = gameToEnu(x, z, 180);
@@ -179,12 +185,12 @@ describe('terrainSource — Geodesy & Coordinate Transforms', () => {
     expect(northM).toBeCloseTo(n, 8);
   });
 
-  it('with downhill azimuth 0 (due north), ENU north maps to game +Z', () => {
+  it('with downhill azimuth 0 (due north), ENU north maps to game +Z and East maps to screen-right (-X)', () => {
     const e = 50.0;
     const n = 100.0;
     const { x, z } = enuToGame(e, n, 0);
-    // azimuth 0: x = e*1 - n*0 = e, z = e*0 + n*1 = n
-    expect(x).toBeCloseTo(e, 8);
+    // azimuth 0: x = -e*1 + n*0 = -e, z = e*0 + n*1 = n
+    expect(x).toBeCloseTo(-e, 8);
     expect(z).toBeCloseTo(n, 8);
   });
 });

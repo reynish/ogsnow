@@ -14,6 +14,24 @@ const DEFAULT_ARTIFACTS: TerrainArtifacts = {
   heightsUrl: './assets/terrain/whistler-dem.bin',
 };
 
+export function validateArtifactUrl(url: string | undefined, paramName: string): string {
+  if (typeof url !== 'string' || !url.trim()) {
+    throw new Error(`TerrainManager: ${paramName} URL is required and must be a non-empty string.`);
+  }
+  const trimmed = url.trim();
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) || trimmed.startsWith('//')) {
+    throw new Error(`TerrainManager: ${paramName} must be a local relative path, got absolute URL: "${trimmed}"`);
+  }
+  if (trimmed.includes('..')) {
+    throw new Error(`TerrainManager: ${paramName} cannot contain path traversal (".."): "${trimmed}"`);
+  }
+  const normalized = trimmed.startsWith('./') ? trimmed.slice(2) : trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
+  if (!normalized.startsWith('assets/')) {
+    throw new Error(`TerrainManager: ${paramName} must be restricted to assets directory ("./assets/"): "${trimmed}"`);
+  }
+  return trimmed;
+}
+
 export class TerrainManager {
   public readonly terrainData: TerrainData;
   public readonly rootGroup: THREE.Group;
@@ -69,11 +87,13 @@ export class TerrainManager {
     }
 
     this.initPromise = (async () => {
-      const {
-        glbUrl = DEFAULT_ARTIFACTS.glbUrl,
-        manifestUrl = DEFAULT_ARTIFACTS.manifestUrl,
-        heightsUrl = DEFAULT_ARTIFACTS.heightsUrl,
-      } = artifacts ?? {};
+      const rawGlbUrl = artifacts?.glbUrl ?? DEFAULT_ARTIFACTS.glbUrl;
+      const rawManifestUrl = artifacts?.manifestUrl ?? DEFAULT_ARTIFACTS.manifestUrl;
+      const rawHeightsUrl = artifacts?.heightsUrl ?? DEFAULT_ARTIFACTS.heightsUrl;
+
+      const glbUrl = validateArtifactUrl(rawGlbUrl, 'glbUrl');
+      const manifestUrl = this.dataInjected ? rawManifestUrl : validateArtifactUrl(rawManifestUrl, 'manifestUrl');
+      const heightsUrl = this.dataInjected ? rawHeightsUrl : validateArtifactUrl(rawHeightsUrl, 'heightsUrl');
 
       // 1. Clear any prior terrain meshes and obstacles from rootGroup
       for (let i = this.rootGroup.children.length - 1; i >= 0; i--) {

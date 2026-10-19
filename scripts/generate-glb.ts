@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  assembleTerrainData,
   buildTerrainMeshFromDEM,
   exportTerrainToGLBBuffer,
 } from '../src/terrain/glbPipeline';
@@ -10,7 +9,7 @@ import {
   TerrainManifest,
   TerrainDerivation,
 } from '../src/types';
-import { fnv1a32 } from '../src/terrain/terrainDerivation';
+import { fnv1a32, deriveTerrain } from '../src/terrain/terrainDerivation';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -76,7 +75,7 @@ async function main(): Promise<void> {
   const seed = fnv1a32(manifest.mountainId);
   console.log(`[generate-glb] Deriving drop zones and obstacles (seed=${seed})...`);
 
-  const terrainData = assembleTerrainData(manifest, heights);
+  const terrainData = deriveTerrain(manifest, heights);
 
   console.log(
     `[generate-glb] Derived: ${terrainData.dropZones.length} drop zones, ` +

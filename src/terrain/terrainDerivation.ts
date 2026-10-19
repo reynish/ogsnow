@@ -9,13 +9,21 @@ import {
   TerrainData,
 } from '../types';
 
+// ─── Types ─────────────────────────────────────────────────────────────
+
+export type OsmRefineHook = (
+  obstacles: TerrainObstacle[],
+  manifest: TerrainManifest,
+  heights: Float32Array,
+) => TerrainObstacle[];
+
 // ─── FNV-1a 32-bit hash for seeding ───────────────────────────────────
 
 export function fnv1a32(str: string): number {
   let hash = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
     hash ^= str.charCodeAt(i);
-    hash = (hash * 0x01000193) & 0xffffffff;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
   }
   return hash;
 }
@@ -23,13 +31,12 @@ export function fnv1a32(str: string): number {
 // ─── Mulberry32 seeded PRNG ──────────────────────────────────────────
 
 export function createSeededRandom(seed: number): () => number {
-  let s = seed & 0xffffffff;
+  let s = seed >>> 0;
   return function () {
-    s += 0x6d2b79f5;
-    let t = s;
-    t = (t ^ (t >> 15)) * (1 | t);
-    t = (t ^ (t >> 7)) * (61 | t);
-    return (t ^ (t >> 14)) / 4294967296;
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
@@ -286,6 +293,7 @@ export function deriveObstacles(
   heights: Float32Array,
   dropZones: DropZone[],
   seed: number,
+  osmRefine?: OsmRefineHook,
 ): TerrainObstacle[] {
   const { width: W, length: L, segmentsX: segX, segmentsZ: segZ } = manifest;
   const spacing = manifest.gridResolutionMeters || 12.5;
@@ -339,9 +347,11 @@ export function deriveObstacles(
     // ---- Terrain analysis for obstacle type classification ----
     const slope = slopeMagnitude(r, c, heights, segX, segZ, spacing);
     const curv = curvature(r, c, heights, segX, segZ, spacing);
-    const treeLine = manifest.source?.minElevationM !== undefined
-      ? Math.min(manifest.maxElevation, 1650)
-      : 1650;
+    const treeLine = manifest.treeLineElevationM ?? (
+      manifest.source?.minElevationM !== undefined
+        ? Math.min(manifest.maxElevation, 1650)
+        : 1650
+    );
 
     // Probability weights based on terrain
     const belowTreeLine = h <= treeLine;
@@ -413,6 +423,10 @@ export function deriveObstacles(
     });
   }
 
+  if (osmRefine) {
+    return osmRefine(obstacles, manifest, heights);
+  }
+
   return obstacles;
 }
 
@@ -425,11 +439,12 @@ export function deriveObstacles(
 export function deriveTerrain(
   manifest: TerrainManifest,
   heights: Float32Array,
+  osmRefine?: OsmRefineHook,
 ): TerrainData {
   const seed = fnv1a32(manifest.mountainId);
 
   const dropZones = deriveDropZones(manifest, heights);
-  const obstacles = deriveObstacles(manifest, heights, dropZones, seed);
+  const obstacles = deriveObstacles(manifest, heights, dropZones, seed, osmRefine);
 
   return {
     mountainId: manifest.mountainId,

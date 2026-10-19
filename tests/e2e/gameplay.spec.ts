@@ -3,10 +3,12 @@ import { test, expect } from '@playwright/test';
 test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)', () => {
   let consoleErrors: string[] = [];
   let pageErrors: string[] = [];
+  let externalRequests: string[] = [];
 
   test.beforeEach(async ({ page }) => {
     consoleErrors = [];
     pageErrors = [];
+    externalRequests = [];
 
     // Capture all console.error and pageerror events before navigation
     page.on('console', (msg) => {
@@ -17,6 +19,29 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
 
     page.on('pageerror', (err) => {
       pageErrors.push(err.message);
+    });
+
+    // m5: Spy on all network requests and assert zero external outbound requests
+    await page.route('**/*', (route) => {
+      const url = route.request().url();
+      try {
+        const parsed = new URL(url);
+        const isLocal =
+          parsed.hostname === 'localhost' ||
+          parsed.hostname === '127.0.0.1' ||
+          parsed.hostname === '::1' ||
+          parsed.protocol === 'data:' ||
+          parsed.protocol === 'blob:';
+
+        if (!isLocal) {
+          externalRequests.push(url);
+          route.abort('blockedbyclient');
+        } else {
+          route.continue();
+        }
+      } catch {
+        route.continue();
+      }
     });
 
     await page.goto('/');
@@ -41,6 +66,12 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     expect(
       pageErrors,
       `Detected pageerror exceptions during test: ${pageErrors.join(' | ')}`
+    ).toHaveLength(0);
+
+    // m5: Assert zero external outbound requests occurred during test
+    expect(
+      externalRequests,
+      `Detected external outbound network requests during test: ${externalRequests.join(' | ')}`
     ).toHaveLength(0);
   });
 

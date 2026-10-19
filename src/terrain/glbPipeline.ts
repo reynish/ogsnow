@@ -38,6 +38,30 @@ export function assembleTerrainData(
   manifest: import('../types').TerrainManifest,
   heights: Float32Array,
 ): TerrainData {
+  if (manifest.dropZones && manifest.dropZones.length > 0 && manifest.obstacles && manifest.obstacles.length > 0) {
+    return {
+      mountainId: manifest.mountainId,
+      mountainName: manifest.mountainName,
+      region: manifest.region,
+      width: manifest.width,
+      length: manifest.length,
+      segmentsX: manifest.segmentsX,
+      segmentsZ: manifest.segmentsZ,
+      minElevation: manifest.minElevation,
+      maxElevation: manifest.maxElevation,
+      heights,
+      obstacles: manifest.obstacles,
+      dropZones: manifest.dropZones,
+      glbLoaded: false,
+      glbFormatVersion: '2.0',
+      source: manifest.source,
+      origin: manifest.origin,
+      realWorld: true,
+      attribution: manifest.attribution,
+      sampledControlPoints: manifest.sampledControlPoints,
+      gridResolutionMeters: manifest.gridResolutionMeters,
+    };
+  }
   return deriveTerrain(manifest, heights);
 }
 
@@ -130,7 +154,7 @@ export function buildTerrainMeshFromDEM(data: TerrainData): THREE.Mesh {
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'whistler_terrain_mesh';
-  // Attach terrain metadata so glTF extras carries mountain metadata [Fix M10]
+  // Attach terrain metadata so glTF extras carries mountain metadata [Fix M10 / M4]
   mesh.userData = {
     mountainId: data.mountainId,
     mountainName: data.mountainName,
@@ -143,6 +167,12 @@ export function buildTerrainMeshFromDEM(data: TerrainData): THREE.Mesh {
     maxElevation: data.maxElevation,
     dropZones: data.dropZones,
     obstacles: data.obstacles,
+    source: data.source,
+    origin: data.origin,
+    attribution: data.attribution,
+    demFormatVersion: (data as any).demFormatVersion ?? 1,
+    gridResolutionMeters: data.gridResolutionMeters ?? (data.width / data.segmentsX),
+    sampledControlPoints: data.sampledControlPoints,
   };
   return mesh;
 }
@@ -198,9 +228,13 @@ export async function parseTerrainFromGLBBuffer(buffer: ArrayBuffer): Promise<TH
         // all child meshes in the loaded scene, set material.flatShading = true,
         // material.vertexColors = true, and material.needsUpdate = true, while ensuring
         // geometry vertex normals are properly computed for low-poly faceted rendering.
+        let meshUserData: Record<string, any> | null = null;
         gltf.scene.traverse((child) => {
           if ((child as THREE.Mesh).isMesh) {
             const m = child as THREE.Mesh;
+            if (!meshUserData && m.userData && Object.keys(m.userData).length > 0) {
+              meshUserData = m.userData;
+            }
             if (m.geometry) {
               m.geometry.computeVertexNormals();
             }
@@ -216,6 +250,11 @@ export async function parseTerrainFromGLBBuffer(buffer: ArrayBuffer): Promise<TH
             }
           }
         });
+        if (meshUserData) {
+          const uData = meshUserData as Record<string, any>;
+          gltf.scene.userData = { ...uData, ...gltf.scene.userData };
+          gltf.scene.userData.terrainMetadata = uData;
+        }
         resolve(gltf.scene);
       },
       (error) => {

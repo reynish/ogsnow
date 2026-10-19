@@ -161,22 +161,10 @@ async function main(): Promise<void> {
     const key = `${tile.z}/${tile.x}/${tile.y}`;
     tileKeys.add(key);
 
-    console.log(`[fetch] Processing tile ${key}...`);
     const rawPng = await fetchTile(tile.z, tile.x, tile.y);
     const sha256 = sha256Hex(rawPng);
-    console.log(`[fetch]   SHA-256: ${sha256}`);
-
     const decoded = decodeTerrariumPng(rawPng);
     tileData.set(key, decoded);
-
-    // Quick stats
-    let tMin = Infinity;
-    let tMax = -Infinity;
-    for (let i = 0; i < decoded.length; i++) {
-      if (decoded[i] < tMin) tMin = decoded[i];
-      if (decoded[i] > tMax) tMax = decoded[i];
-    }
-    console.log(`[fetch]   Min: ${tMin.toFixed(1)} m, Max: ${tMax.toFixed(1)} m`);
 
     tileRecords.push({
       z: tile.z,
@@ -314,30 +302,57 @@ async function main(): Promise<void> {
 
 // ─── Stable JSON Serializer ──────────────────────────────────────────────
 // Produces deterministic JSON with canonical field ordering.
+// Guards against cyclic structures and enforces depth limit (Fix S2).
 
-function stableJsonStringify(obj: any, indent: string = '  '): string {
+export function stableJsonStringify(
+  obj: any,
+  indent: string = '  ',
+  maxDepth: number = 32,
+  seen: Set<any> = new Set(),
+): string {
+  if (obj !== null && typeof obj === 'object') {
+    if (seen.has(obj)) {
+      throw new TypeError('Converting circular structure to JSON');
+    }
+    if (maxDepth < 0) {
+      throw new RangeError('stableJsonStringify: maximum nesting depth exceeded');
+    }
+  }
+
   if (obj === null || obj === undefined) return 'null';
   if (typeof obj === 'string') return JSON.stringify(obj);
   if (typeof obj === 'number' || typeof obj === 'boolean') return String(obj);
 
   if (Array.isArray(obj)) {
-    const items = obj.map((item) => stableJsonStringify(item, indent));
-    return '[\n' + items.map((s) => indent + s).join(',\n') + '\n]';
+    seen.add(obj);
+    try {
+      const items = obj.map((item) => stableJsonStringify(item, indent, maxDepth - 1, seen));
+      return '[\n' + items.map((s) => indent + s).join(',\n') + '\n]';
+    } finally {
+      seen.delete(obj);
+    }
   }
 
   if (typeof obj === 'object') {
-    const keys = Object.keys(obj).sort();
-    const pairs = keys.map((k) => {
-      const val = stableJsonStringify(obj[k], indent);
-      return `${indent}${JSON.stringify(k)}: ${val}`;
-    });
-    return '{\n' + pairs.join(',\n') + '\n}';
+    seen.add(obj);
+    try {
+      const keys = Object.keys(obj).sort();
+      const pairs = keys.map((k) => {
+        const val = stableJsonStringify(obj[k], indent, maxDepth - 1, seen);
+        return `${indent}${JSON.stringify(k)}: ${val}`;
+      });
+      return '{\n' + pairs.join(',\n') + '\n}';
+    } finally {
+      seen.delete(obj);
+    }
   }
 
   return String(obj);
 }
 
-main().catch((err) => {
-  console.error('[fetch] FATAL:', err.message || err);
-  process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error('[fetch] FATAL:', err.message || err);
+    process.exit(1);
+  });
+}

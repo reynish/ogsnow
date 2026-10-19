@@ -76,10 +76,9 @@ export function enuToGame(
   const thetaRad = azimuthDeg * Math.PI / 180;
   const sinT = Math.sin(thetaRad);
   const cosT = Math.cos(thetaRad);
-  // x_game = east·cosT − north·sinT
-  // z_game = east·sinT + north·cosT
+  // Reflect lateral axis so real-world West maps to screen-right (-X in world space) when riding South down +Z (M2)
   return {
-    x: eastM * cosT - northM * sinT,
+    x: -eastM * cosT + northM * sinT,
     z: eastM * sinT + northM * cosT,
   };
 }
@@ -92,11 +91,9 @@ export function gameToEnu(
   const thetaRad = azimuthDeg * Math.PI / 180;
   const sinT = Math.sin(thetaRad);
   const cosT = Math.cos(thetaRad);
-  // east  = x·cosT + z·sinT
-  // north = −x·sinT + z·cosT
   return {
-    eastM: x * cosT + z * sinT,
-    northM: -x * sinT + z * cosT,
+    eastM: -x * cosT + z * sinT,
+    northM: x * sinT + z * cosT,
   };
 }
 

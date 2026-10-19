@@ -306,3 +306,83 @@ describe('terrainDerivation — Derivation Metadata', () => {
     expect(data.source!.provider).toBe('aws-terrarium');
   });
 });
+
+describe('terrainDerivation — PRNG Uniformity & Obstacle Spatial Distribution (M1)', () => {
+  it('createSeededRandom spans full [0.0, 1.0) range across all 10 deciles (M1)', () => {
+    const rand = createSeededRandom(12345);
+    const N = 100000;
+    const deciles = new Array(10).fill(0);
+    let minVal = Infinity;
+    let maxVal = -Infinity;
+
+    for (let i = 0; i < N; i++) {
+      const val = rand();
+      expect(val).toBeGreaterThanOrEqual(0.0);
+      expect(val).toBeLessThan(1.0);
+      if (val < minVal) minVal = val;
+      if (val > maxVal) maxVal = val;
+      const decileIndex = Math.floor(val * 10);
+      deciles[Math.min(decileIndex, 9)]++;
+    }
+
+    // Min value should be very close to 0, max value should exceed 0.99
+    expect(minVal).toBeLessThan(0.005);
+    expect(maxVal).toBeGreaterThan(0.995);
+
+    // Each decile expected to hold ~10% (10,000) of samples, tolerance +/- 1,500
+    for (let d = 0; d < 10; d++) {
+      expect(deciles[d]).toBeGreaterThan(8500);
+      expect(deciles[d]).toBeLessThan(11500);
+    }
+  });
+
+  it('derived obstacles span both z < 0 and z > 0 with >= 40% in downhill runout (M1)', () => {
+    const data = loadTerrainData();
+    const negZ = data.obstacles.filter((o) => o.position.z < 0).length;
+    const posZ = data.obstacles.filter((o) => o.position.z > 0).length;
+    const posPercent = (posZ / data.obstacles.length) * 100;
+
+    expect(negZ).toBeGreaterThan(0);
+    expect(posZ).toBeGreaterThan(0);
+    expect(posPercent).toBeGreaterThanOrEqual(40);
+  });
+});
+
+describe('terrainDerivation — FNV-1a 32-Bit Unsigned Hash (M5)', () => {
+  it('fnv1a32 always returns an unsigned 32-bit integer (>= 0 and <= 0xffffffff)', () => {
+    const testStrings = [
+      'whistler',
+      'snowdon',
+      'mont-blanc',
+      'matterhorn',
+      'a-very-long-test-string-to-induce-top-bit-sets',
+      'special-chars-!@#$%^&*()',
+      '',
+    ];
+
+    for (const str of testStrings) {
+      const hash = fnv1a32(str);
+      expect(hash).toBeGreaterThanOrEqual(0);
+      expect(hash).toBeLessThanOrEqual(0xffffffff);
+      expect(Number.isInteger(hash)).toBe(true);
+      expect(hash >>> 0).toBe(hash);
+    }
+  });
+});
+
+describe('terrainDerivation — OsmRefine Hook (m3)', () => {
+  it('passes derived obstacles through optional osmRefine hook when provided', () => {
+    const manifest = loadManifest();
+    const heights = loadHeights();
+
+    let hookCalled = false;
+    const customHook = (obs: any[]) => {
+      hookCalled = true;
+      return obs.filter((_, idx) => idx % 2 === 0);
+    };
+
+    const result = deriveTerrain(manifest, heights, customHook);
+    expect(hookCalled).toBe(true);
+    expect(result.obstacles.length).toBe(55); // 110 / 2
+  });
+});

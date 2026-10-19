@@ -249,7 +249,8 @@ export class PhysicsEngine {
       this.state.headingRad *= 0.5;
     }
 
-    if (newZ >= halfLength - 15) {
+    // 8. Lateral & Bottom Boundary Enforcement (ADR-0006 M12, PR-2 m4)
+    if (newZ >= halfLength - 15 || (!this.state.isCrashed && newZ >= halfLength - 40 && currentSpeed < 0.05)) {
       const dz =
         this.config.dropZones.find((d) => d.id === this.state.activeDropZoneId) ||
         this.config.dropZones[0];

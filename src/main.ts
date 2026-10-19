@@ -30,7 +30,7 @@ export class GameApp {
   public elapsedSeconds: number = 0;
 
   // [ADR-0006 / PR-1 B2, M4] Initialization readiness and simulation pause state
-  private isReady: boolean = false;
+  public isReady: boolean = false;
   private initPromise: Promise<void> | null = null;
   private isSimulationPaused: boolean = false;
 
@@ -123,7 +123,7 @@ export class GameApp {
     this.registerGlobalBridge();
   }
 
-  // [ADR-0006 / PR-1 B2] Idempotent init flow avoiding drop-in overwrite
+  // [ADR-0006 / PR-1 B2 / PR-2 B1, B2] Idempotent init flow avoiding drop-in overwrite and failing loudly
   public async init(): Promise<void> {
     if (this.initPromise) {
       return this.initPromise;
@@ -135,8 +135,17 @@ export class GameApp {
         await this.terrain.initialize();
         // Use real drop zones from manifest as authoritative (ADR-0007)
         this.config.dropZones = [...this.terrain.terrainData.dropZones];
-      } catch (err) {
-        console.warn('Failed to load terrain artifacts during init:', err);
+      } catch (err: any) {
+        this.isReady = false;
+        this.mode = 'error';
+        const msg = err?.message || 'Failed to load terrain artifacts';
+        console.error('Failed to load terrain artifacts during init:', err);
+        if (this.hud) {
+          this.hud.setMode('error');
+          this.hud.showErrorBanner(`TERRAIN LOAD ERROR: ${msg}`);
+        }
+        this.syncGlobalState();
+        throw err;
       }
 
       const defaultDz =
@@ -172,19 +181,23 @@ export class GameApp {
     return this.initPromise;
   }
 
-  // [ADR-0006 / PR-1 B2] Idempotent drop-in flow with camera snap and state readiness
+  // [ADR-0006 / PR-1 B2 / PR-2 B1, B2] Idempotent drop-in flow with camera snap and state readiness
   public async dropIn(dropZoneId: string): Promise<void> {
+    try {
+      await this.init();
+    } catch {
+      return;
+    }
+
+    if (this.mode === 'error' || !this.isReady) {
+      return;
+    }
+
     const dropZone =
       this.config.dropZones.find((dz) => dz.id === dropZoneId) ?? this.config.dropZones[0];
 
     this.activeDropZoneId = dropZone.id;
     this.mode = 'riding';
-
-    try {
-      await this.terrain.initialize();
-    } catch (err) {
-      console.warn('Failed to load terrain artifacts during dropIn:', err);
-    }
 
     this.physics.resetAtDropZone(dropZone);
     const playerState = this.physics.getState();
@@ -206,7 +219,6 @@ export class GameApp {
       this.hud.update(playerState, audioState);
     }
 
-    this.isReady = true;
     this.syncGlobalState();
   }
 

@@ -24,8 +24,10 @@ export class HUDManager {
   private airtimeBannerEl!: HTMLElement;
   private carveBannerEl!: HTMLElement;
   private carveMeterFillEl!: HTMLElement;
+  private errorBannerEl?: HTMLElement;
 
   private currentMode: GameMode = 'menu';
+  private dropZonesEnabled: boolean = false;
 
   // [PR-1 M1/Security] Cached HUD values to eliminate redundant DOM writes
   private cachedSpeedText: string = '';
@@ -48,11 +50,12 @@ export class HUDManager {
    * Rebuild the drop-zone grid in the main menu with new data (e.g. after terrain init).
    */
   public updateDropZones(dropZones: DropZone[]): void {
+    this.dropZonesEnabled = true;
     this.config = { ...this.config, dropZones };
     // Rebuild the entire menu UI with updated drop zones
     this.render();
     // Restore visibility state
-    if (this.currentMode === 'menu') {
+    if (this.currentMode === 'menu' || this.currentMode === 'error') {
       this.mainMenuEl.classList.remove('hidden');
       this.hudOverlayEl.classList.add('hidden');
     } else {
@@ -61,16 +64,33 @@ export class HUDManager {
     }
   }
 
+  public showErrorBanner(message: string): void {
+    if (!this.errorBannerEl) {
+      this.errorBannerEl = document.createElement('div');
+      this.errorBannerEl.className = 'terrain-error-banner retro-shadow retro-skew';
+      this.errorBannerEl.setAttribute('data-testid', 'terrain-error-banner');
+      this.container.appendChild(this.errorBannerEl);
+    }
+    this.errorBannerEl.textContent = message;
+    this.errorBannerEl.style.display = 'block';
+  }
+
   public setMode(mode: GameMode, activeDropZoneId?: string): void {
     this.currentMode = mode;
 
-    if (mode === 'menu') {
+    if (mode === 'menu' || mode === 'error') {
       this.mainMenuEl.classList.remove('hidden');
       this.hudOverlayEl.classList.add('hidden');
+      if (mode === 'error' && this.errorBannerEl) {
+        this.errorBannerEl.style.display = 'block';
+      }
     } else {
       this.mainMenuEl.classList.add('hidden');
       this.hudOverlayEl.classList.remove('hidden');
       this.cachedActiveBanner = 'none';
+      if (this.errorBannerEl) {
+        this.errorBannerEl.style.display = 'none';
+      }
 
       if (activeDropZoneId) {
         const dropZone = this.config.dropZones.find((dz) => dz.id === activeDropZoneId);
@@ -245,7 +265,15 @@ export class HUDManager {
       card.appendChild(elevDiv);
       card.appendChild(descDiv);
 
+      if (!this.dropZonesEnabled) {
+        card.disabled = true;
+        card.classList.add('disabled');
+        card.style.pointerEvents = 'none';
+        card.style.opacity = '0.5';
+      }
+
       card.addEventListener('click', (e) => {
+        if (!this.dropZonesEnabled || card.disabled) return;
         (e.currentTarget as HTMLElement)?.blur();
         this.callbacks.onSelectDropZone(dz.id);
       });

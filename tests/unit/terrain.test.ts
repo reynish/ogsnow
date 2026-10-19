@@ -7,8 +7,9 @@ import {
   exportTerrainToGLBBuffer,
   parseTerrainFromGLBBuffer,
 } from '../../src/terrain/glbPipeline';
-import { TerrainManager } from '../../src/terrain/TerrainManager';
+import { TerrainManager, validateArtifactUrl } from '../../src/terrain/TerrainManager';
 import { TerrainManifest, TerrainData } from '../../src/types';
+import { stableJsonStringify } from '../../scripts/fetch-terrain';
 
 // ─── Shared fixture loading ────────────────────────────────────────────
 
@@ -338,7 +339,7 @@ describe('GLB Export & Import Pipeline', () => {
     expect(td.maxElevation).toBeGreaterThan(2100);
   });
 
-  it('parseTerrainFromGLBBuffer preserves userData metadata (mountainId, dropZones, obstacles)', async () => {
+  it('parseTerrainFromGLBBuffer preserves userData metadata including Iteration 2 provenance (M4)', async () => {
     const mesh = buildTerrainMeshFromDEM(realData);
     const glbBuffer = await exportTerrainToGLBBuffer(mesh);
     const group = await parseTerrainFromGLBBuffer(glbBuffer);
@@ -355,9 +356,23 @@ describe('GLB Export & Import Pipeline', () => {
         expect(m.userData.maxElevation).toBeDefined();
         expect(m.userData.dropZones).toHaveLength(3);
         expect(m.userData.obstacles.length).toBeGreaterThan(0);
+        // M4: Full provenance fields
+        expect(m.userData.source).toBeDefined();
+        expect(m.userData.source.provider).toBe('aws-terrarium');
+        expect(m.userData.origin).toBeDefined();
+        expect(m.userData.origin.downhillAzimuthDeg).toBe(180);
+        expect(m.userData.attribution).toBeDefined();
+        expect(m.userData.attribution.length).toBeGreaterThanOrEqual(1);
+        expect(m.userData.demFormatVersion).toBe(1);
+        expect(m.userData.gridResolutionMeters).toBe(12.5);
       }
     });
     expect(meshFound).toBe(true);
+
+    // Also assert on group.userData.terrainMetadata
+    expect(group.userData.terrainMetadata).toBeDefined();
+    expect(group.userData.terrainMetadata.mountainId).toBe('whistler');
+    expect(group.userData.terrainMetadata.source.provider).toBe('aws-terrarium');
   });
 
   it('TerrainManager.initialize() idempotency: initPromise cached internally', async () => {
@@ -402,5 +417,59 @@ describe('GLB Export & Import Pipeline', () => {
     expect(tm1.terrainData.obstacles.length).toBe(tm2.terrainData.obstacles.length);
     expect(tm1.rootGroup.children.length).toBe(0); // No children before initialize
     expect(tm2.rootGroup.children.length).toBe(0);
+  });
+});
+
+describe('Terrain Pipeline — Performance & Security Guardrails (P1, S1, S2)', () => {
+  it('P1: assembleTerrainData reuses pre-derived dropZones and obstacles from manifest', () => {
+    const manifest = loadManifest();
+    const heights = loadHeights();
+
+    expect(manifest.dropZones).toBeDefined();
+    expect(manifest.obstacles).toBeDefined();
+
+    const data = assembleTerrainData(manifest, heights);
+    // Should reuse the references from manifest rather than recalculating
+    expect(data.dropZones).toBe(manifest.dropZones);
+    expect(data.obstacles).toBe(manifest.obstacles);
+  });
+
+  it('S1: validateArtifactUrl permits safe relative asset URLs', () => {
+    expect(validateArtifactUrl('./assets/whistler-peak.glb', 'glbUrl')).toBe('./assets/whistler-peak.glb');
+    expect(validateArtifactUrl('assets/terrain/whistler-dem.bin', 'heightsUrl')).toBe('assets/terrain/whistler-dem.bin');
+    expect(validateArtifactUrl('/assets/terrain/whistler-terrain.json', 'manifestUrl')).toBe('/assets/terrain/whistler-terrain.json');
+  });
+
+  it('S1: validateArtifactUrl rejects absolute, external, traversal, or non-asset paths', () => {
+    // External protocols
+    expect(() => validateArtifactUrl('https://malicious.com/hack.glb', 'glbUrl')).toThrow(/absolute URL/);
+    expect(() => validateArtifactUrl('http://evil.org/dem.bin', 'heightsUrl')).toThrow(/absolute URL/);
+    expect(() => validateArtifactUrl('//cdn.example.com/data.json', 'manifestUrl')).toThrow(/absolute URL/);
+
+    // Path traversal
+    expect(() => validateArtifactUrl('../secret/whistler.glb', 'glbUrl')).toThrow(/path traversal/);
+    expect(() => validateArtifactUrl('./assets/../../etc/passwd', 'glbUrl')).toThrow(/path traversal/);
+
+    // Outside assets directory
+    expect(() => validateArtifactUrl('./scripts/generate-glb.ts', 'glbUrl')).toThrow(/restricted to assets directory/);
+    expect(() => validateArtifactUrl('src/config.ts', 'manifestUrl')).toThrow(/restricted to assets directory/);
+  });
+
+  it('S2: stableJsonStringify throws on cyclic structures', () => {
+    const circularObj: any = { a: 1 };
+    circularObj.self = circularObj;
+
+    expect(() => stableJsonStringify(circularObj)).toThrow(TypeError);
+    expect(() => stableJsonStringify(circularObj)).toThrow(/circular/);
+  });
+
+  it('S2: stableJsonStringify throws on excessive nesting depth', () => {
+    let deep: any = { value: 42 };
+    for (let i = 0; i < 40; i++) {
+      deep = { child: deep };
+    }
+
+    expect(() => stableJsonStringify(deep, '  ', 30)).toThrow(RangeError);
+    expect(() => stableJsonStringify(deep, '  ', 30)).toThrow(/maximum nesting depth/);
   });
 });

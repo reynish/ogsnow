@@ -501,28 +501,38 @@ export function resampleToGrid(
 export function sha256Hex(buf: Buffer): string;
 export function buildSourceMetadata(entry: MountainRegistryEntry, tiles: TerrainTileRecord[], min: number, max: number): TerrainSourceMetadata;
 ```
-- `enuToGame`/`gameToEnu` MUST implement the ADR-0007 §5 formulas exactly (`x_game = east·cosθ − north·sinθ`; `z_game = east·sinθ + north·cosθ` and inverse), so downhill azimuth `θ` maps to game `+Z`.
+- `enuToGame`/`gameToEnu` MUST implement the geodetic rotation with Three.js screen-space parity (M2: `x_game = -east·cosθ + north·sinθ`; `z_game = east·sinθ + north·cosθ` and inverse), so downhill azimuth `θ` maps to game `+Z` and real-world West maps to screen-right (`-X`).
 - `resampleToGrid` MUST produce a `(gridSegmentsZ+1)×(gridSegmentsX+1)` `Float32` row-major grid over `x ∈ [−W/2,+W/2]`, `z ∈ [−L/2,+L/2]`, sampling the nearest/bilinear Terrarium pixel per grid node, and record ≥16 evenly spaced `SampledControlPoint`s.
 
 ### 4.1.3 Deterministic Derivation (`src/terrain/terrainDerivation.ts` — browser + Node safe)
 
 ```typescript
-import { TerrainData, DropZone, TerrainObstacle, TerrainDerivation } from '../types';
+import { TerrainManifest, DropZone, TerrainObstacle, TerrainData } from '../types';
+
+export type OsmRefineHook = (
+  obstacles: TerrainObstacle[],
+  manifest: TerrainManifest,
+  heights: Float32Array,
+) => TerrainObstacle[];
 
 export function deriveDropZones(
-  data: TerrainData,
-  opts: { seed: number; count: number; minSpacingM: number; spawnClearanceM: number }
+  manifest: TerrainManifest,
+  heights: Float32Array,
 ): DropZone[];
 
 export function deriveObstacles(
-  data: TerrainData,
-  opts: { seed: number; treeLineElevationM: number; maxCount: number; osmRefine?: OsmRefineHook }
+  manifest: TerrainManifest,
+  heights: Float32Array,
+  dropZones: DropZone[],
+  seed: number,
+  osmRefine?: OsmRefineHook,
 ): TerrainObstacle[];
 
 export function deriveTerrain(
-  data: TerrainData,
-  opts?: Partial<DeriveOptions>
-): { dropZones: DropZone[]; obstacles: TerrainObstacle[]; derivation: TerrainDerivation };
+  manifest: TerrainManifest,
+  heights: Float32Array,
+  osmRefine?: OsmRefineHook,
+): TerrainData;
 ```
 - `deriveDropZones` scans the grid for **sustained steep fall lines** (contiguous downhill cells above a min pitch for a min run length), picks `count` candidates with ≥`minSpacingM` lateral separation, and guarantees ≥`spawnClearanceM` (25 m) obstacle-free radial clearance + an 80 m downhill corridor below each spawn (ADR-0002 Rule 2).
 - **Stable drop-zone id contract (retained from Iteration 1):** for Whistler, `deriveDropZones` MUST emit exactly 3 drop zones with the **unchanged** ids `summit-express` (highest elevation), `harmony-ridge` (middle), `glacier-bowl` (lowest), preserving the existing `[data-testid="drop-zone-btn-*"]` selectors and E2E assertions. Only their positions/elevations (and optional display names) are re-derived from the real DEM.
