@@ -49,4 +49,5 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
       initialHeadingRad: -0.06,
     },
   ],
+  attribution: ['Elevation: AWS Open Data Terrain Tiles (Terrarium)'],
 };

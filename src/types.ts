@@ -24,6 +24,81 @@ export interface TerrainObstacle {
   height: number;
 }
 
+export interface GeoOrigin {
+  latitudeDeg: number;
+  longitudeDeg: number;
+  downhillAzimuthDeg: number;
+}
+
+export interface PinnedTile {
+  z: number;
+  x: number;
+  y: number;
+}
+
+export interface SampledControlPoint {
+  id: string;
+  row: number;
+  col: number;
+  x: number;
+  z: number;
+  latDeg: number;
+  lonDeg: number;
+  tileZ: number;
+  tileX: number;
+  tileY: number;
+  px: number;
+  py: number;
+  elevationM: number;
+}
+
+export interface TerrainTileRecord {
+  z: number;
+  x: number;
+  y: number;
+  url: string;
+  sha256: string;
+}
+
+export interface TerrainSourceMetadata {
+  provider: 'aws-terrarium' | 'copernicus-glo30';
+  zoom: number;
+  tiles: TerrainTileRecord[];
+  minElevationM: number;
+  maxElevationM: number;
+}
+
+export interface TerrainDerivation {
+  algorithmVersion: number;
+  seed: number;
+  treeLineElevationM: number;
+  dropZoneCount: number;
+  obstacleCount: number;
+}
+
+export interface TerrainManifest {
+  format: 'ogsnow-terrain';
+  demFormatVersion: number;
+  mountainId: string;
+  mountainName: string;
+  region: string;
+  origin: GeoOrigin;
+  width: number;
+  length: number;
+  segmentsX: number;
+  segmentsZ: number;
+  gridResolutionMeters: number;
+  minElevation: number;
+  maxElevation: number;
+  source: TerrainSourceMetadata;
+  license: string;
+  attribution: string[];
+  sampledControlPoints: SampledControlPoint[];
+  dropZones?: DropZone[];
+  obstacles?: TerrainObstacle[];
+  derivation?: TerrainDerivation;
+}
+
 export interface TerrainData {
   mountainId: string;
   mountainName: string;
@@ -39,6 +114,13 @@ export interface TerrainData {
   dropZones: DropZone[];
   glbLoaded: boolean;
   glbFormatVersion: string;
+  // ---- Iteration 2 OPTIONAL provenance extensions (ADR-0007) ----
+  source?: TerrainSourceMetadata;
+  origin?: GeoOrigin;
+  realWorld?: boolean;
+  attribution?: string[];
+  sampledControlPoints?: SampledControlPoint[];
+  gridResolutionMeters?: number;
 }
 
 export interface PlayerInput {
@@ -109,6 +191,7 @@ export interface GameConfig {
   cameraBaseFov: number;
   cameraMaxFov: number;
   dropZones: DropZone[];
+  attribution?: string[];
 }
 
 export interface OGSnowGlobalState {
@@ -129,6 +212,14 @@ export interface OGSnowGlobalState {
     obstacleCount: number;
     glbLoaded: boolean;
     glbByteLength: number;
+    // ---- Iteration 2 OPTIONAL provenance fields (ADR-0007) ----
+    realWorld?: boolean;
+    source?: string;
+    origin?: GeoOrigin;
+    attribution?: string[];
+    minElevation?: number;
+    maxElevation?: number;
+    demFormatVersion?: number;
   };
 }
 
