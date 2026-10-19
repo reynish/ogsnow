@@ -80,7 +80,7 @@ This iteration replaces the previous synthetic heightfield with a **genuine impo
 
 \*   **Location:** Whistler Mountain summit area, British Columbia, Canada (origin approx. `50.0596° N, 122.9570° W`).
 
-\*   **Playable extent:** approx. `1,600 m` across-slope x `3,200 m` down-slope, sampled at DEM zoom 14 (~`6.1 m/px` at this latitude).
+\*   **Playable extent:** approx. `1,600 m` across-slope x `3,200 m` down-slope, sampled from open DEM tiles at zoom `13–14` (`6.1–12.3 m/px` at this latitude). The committed Whistler build uses zoom `13` at a `12.5 m` grid spacing (z13 is already finer than the grid); the chosen zoom, tile set, and checksums are recorded in the artifact metadata (`whistler-terrain.json`).
 
 \*   **Orientation:** the real fall line is rotated so downhill runs along world **`+Z`** and lateral spread along `X`, preserving the existing coordinate convention (ADR-0006) so physics/camera/audio contracts are unchanged.
 
@@ -128,7 +128,7 @@ A mountain registry entry (`id`, `name`, `region`, origin lat/lon, bounding box,
 ### 6.7 Acceptance Criteria (Definition of Done)
 
 1. Terrain grid elevations match independently decoded DEM tile elevations at N sample points within tolerance.
-2. `min/maxElevation` reflect the real imported tile range (for Whistler approx. `1,145 m`–`2,182 m`) rather than synthetic clamps, and `altitudeMeters` in `window.__OGSNOW_STATE__` is real-world.
+2. `min/maxElevation` reflect the real imported tile range (committed Whistler build: `1,395.36 m`–`2,177.14 m`) rather than synthetic clamps, and `altitudeMeters` in `window.__OGSNOW_STATE__` is real-world.
 3. `npm run build`, `npm test`, and `npm run test:e2e` perform **zero network requests** and still pass with existing coverage (physics, audio, camera, UI, E2E).
 4. `npm run generate-glb` is byte-deterministic (clean `git diff`).
 5. Data-source attribution is visible in the main menu.
