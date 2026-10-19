@@ -1,4 +1,4 @@
-import { AudioState, GameConfig, GameMode, PlayerState } from '../types';
+import { AudioState, DropZone, GameConfig, GameMode, PlayerState } from '../types';
 
 export interface HUDCallbacks {
   onSelectDropZone: (dropZoneId: string) => void;
@@ -42,6 +42,23 @@ export class HUDManager {
     this.callbacks = callbacks;
 
     this.render();
+  }
+
+  /**
+   * Rebuild the drop-zone grid in the main menu with new data (e.g. after terrain init).
+   */
+  public updateDropZones(dropZones: DropZone[]): void {
+    this.config = { ...this.config, dropZones };
+    // Rebuild the entire menu UI with updated drop zones
+    this.render();
+    // Restore visibility state
+    if (this.currentMode === 'menu') {
+      this.mainMenuEl.classList.remove('hidden');
+      this.hudOverlayEl.classList.add('hidden');
+    } else {
+      this.mainMenuEl.classList.add('hidden');
+      this.hudOverlayEl.classList.remove('hidden');
+    }
   }
 
   public setMode(mode: GameMode, activeDropZoneId?: string): void {
@@ -249,6 +266,13 @@ export class HUDManager {
       <div class="soundtrack-info">170 BPM AMEN JUNGLE SOUNDTRACK</div>
     `;
     this.mainMenuEl.appendChild(footerEl);
+
+    // Attribution (ADR-0007, displayed in main menu)
+    const attributionEl = document.createElement('div');
+    attributionEl.setAttribute('data-testid', 'terrain-attribution');
+    attributionEl.className = 'terrain-attribution';
+    attributionEl.textContent = this.config.attribution?.[0] ?? '';
+    this.mainMenuEl.appendChild(attributionEl);
 
     // ==========================================
     // 2. IN-GAME HUD (#hud-overlay)

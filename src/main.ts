@@ -130,15 +130,22 @@ export class GameApp {
     }
 
     this.initPromise = (async () => {
+      // Load all three committed terrain artifacts (GLB + manifest + DEM)
+      try {
+        await this.terrain.initialize();
+        // Use real drop zones from manifest as authoritative (ADR-0007)
+        this.config.dropZones = [...this.terrain.terrainData.dropZones];
+      } catch (err) {
+        console.warn('Failed to load terrain artifacts during init:', err);
+      }
+
       const defaultDz =
         this.config.dropZones.find((dz) => dz.id === this.activeDropZoneId) ??
         this.config.dropZones[0];
 
-      // Load .glb terrain model
-      try {
-        await this.terrain.initialize('./assets/whistler-peak.glb');
-      } catch (err) {
-        console.warn('Failed to load terrain GLB during init:', err);
+      // Rebuild HUD main menu with real drop zones from manifest
+      if (this.hud) {
+        this.hud.updateDropZones(this.config.dropZones);
       }
 
       // [ADR-0006 / PR-1 B2] Only reset player to defaultDz and HUD to menu if mode is still menu
@@ -174,9 +181,9 @@ export class GameApp {
     this.mode = 'riding';
 
     try {
-      await this.terrain.initialize('./assets/whistler-peak.glb');
+      await this.terrain.initialize();
     } catch (err) {
-      console.warn('Failed to load terrain GLB during dropIn:', err);
+      console.warn('Failed to load terrain artifacts during dropIn:', err);
     }
 
     this.physics.resetAtDropZone(dropZone);
@@ -324,6 +331,16 @@ export class GameApp {
         obstacleCount: this.terrain.terrainData.obstacles.length,
         glbLoaded: this.terrain.terrainData.glbLoaded,
         glbByteLength: this.terrain.glbByteLength,
+        // Provenance (ADR-0007)
+        realWorld: this.terrain.terrainData.realWorld ?? undefined,
+        source: this.terrain.terrainData.source?.provider !== undefined
+          ? `${this.terrain.terrainData.source.provider} (zoom ${this.terrain.terrainData.source.zoom}, ${this.terrain.terrainData.source.tiles.length} tiles)`
+          : undefined,
+        origin: this.terrain.terrainData.origin ?? undefined,
+        attribution: this.terrain.terrainData.attribution ?? undefined,
+        minElevation: this.terrain.terrainData.minElevation ?? undefined,
+        maxElevation: this.terrain.terrainData.maxElevation ?? undefined,
+        demFormatVersion: this.terrain.demFormatVersion,
       },
     };
 

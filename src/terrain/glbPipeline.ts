@@ -41,23 +41,6 @@ export function assembleTerrainData(
   return deriveTerrain(manifest, heights);
 }
 
-/**
- * DEPRECATED: Bridge for TerrainManager (T3 will migrate to assembleTerrainData).
- * Throws at runtime to prevent silent synthetic fallback (ADR-0007 Rule 1).
- * Kept as an export so tsc passes until T3 updates TerrainManager.
- */
-export function generateWhistlerDEM(
-  _width?: number,
-  _length?: number,
-  _segmentsX?: number,
-  _segmentsZ?: number,
-): TerrainData {
-  throw new Error(
-    '[generateWhistlerDEM] Synthetic DEM removed per ADR-0007. ' +
-    'Use assembleTerrainData(manifest, heights) with committed artifacts instead.',
-  );
-}
-
 export function buildTerrainMeshFromDEM(data: TerrainData): THREE.Mesh {
   const { width, length, segmentsX, segmentsZ, heights } = data;
   const geometry = new THREE.BufferGeometry();

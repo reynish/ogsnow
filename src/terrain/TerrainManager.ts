@@ -1,35 +1,81 @@
 import * as THREE from 'three';
-import { TerrainData, TerrainObstacle, Vector3Like } from '../types';
-import {
-  generateWhistlerDEM,
-  buildTerrainMeshFromDEM,
-  exportTerrainToGLBBuffer,
-  parseTerrainFromGLBBuffer,
-} from './glbPipeline';
+import { TerrainData, TerrainManifest, TerrainObstacle, Vector3Like } from '../types';
+import { assembleTerrainData, parseTerrainFromGLBBuffer } from './glbPipeline';
+
+export interface TerrainArtifacts {
+  glbUrl?: string;
+  manifestUrl?: string;
+  heightsUrl?: string;
+}
+
+const DEFAULT_ARTIFACTS: TerrainArtifacts = {
+  glbUrl: './assets/whistler-peak.glb',
+  manifestUrl: './assets/terrain/whistler-terrain.json',
+  heightsUrl: './assets/terrain/whistler-dem.bin',
+};
 
 export class TerrainManager {
   public readonly terrainData: TerrainData;
   public readonly rootGroup: THREE.Group;
   public glbByteLength: number = 0;
+  public demFormatVersion: number = 1;
   private initPromise: Promise<void> | null = null;
+  private dataInjected: boolean;
 
+  /**
+   * @param customData Optional pre-built TerrainData for testing (offline, no fetch).
+   *   When omitted, all data is loaded by initialize() from committed artifact URLs.
+   */
   constructor(customData?: TerrainData) {
-    this.terrainData = customData ?? generateWhistlerDEM();
+    if (customData) {
+      this.terrainData = customData;
+      this.dataInjected = true;
+    } else {
+      // Placeholder — real values loaded by initialize() (never used before that)
+      this.terrainData = {
+        mountainId: '',
+        mountainName: '',
+        region: '',
+        width: 1600,
+        length: 3200,
+        segmentsX: 128,
+        segmentsZ: 256,
+        minElevation: 0,
+        maxElevation: 0,
+        heights: new Float32Array(0),
+        obstacles: [],
+        dropZones: [],
+        glbLoaded: false,
+        glbFormatVersion: '2.0',
+      };
+      this.dataInjected = false;
+    }
+
     this.rootGroup = new THREE.Group();
     this.rootGroup.name = 'terrain_root';
   }
 
-  // [PR-1 B2: Idempotent async initialization guard]
-  // Caches in-flight initialization promise so concurrent or repeated calls to initialize()
-  // never spawn duplicate fetches, duplicate GLB exports, or duplicate scene objects.
-  // Clears any preexisting 'terrain_mesh_group' or 'terrain_obstacles' from rootGroup before adding.
-  public async initialize(glbUrl: string = './assets/whistler-peak.glb'): Promise<void> {
+  /**
+   * Idempotent async initializer. Loads the committed GLB mesh, terrain manifest,
+   * and DEM heightfield via relative bundled fetches (zero external network).
+   *
+   * @param artifacts  Optional override URLs for each artifact (defaults to committed paths).
+   *   When the constructor received customData, only glbUrl is used (manifest/heights skipped).
+   *   Throws on missing/invalid artifacts — NEVER synthesizes (ADR-0007 Rule 1).
+   */
+  public async initialize(artifacts?: TerrainArtifacts): Promise<void> {
     if (this.initPromise) {
       return this.initPromise;
     }
 
     this.initPromise = (async () => {
-      // Remove any prior terrain meshes and obstacles before loading
+      const {
+        glbUrl = DEFAULT_ARTIFACTS.glbUrl,
+        manifestUrl = DEFAULT_ARTIFACTS.manifestUrl,
+        heightsUrl = DEFAULT_ARTIFACTS.heightsUrl,
+      } = artifacts ?? {};
+
+      // 1. Clear any prior terrain meshes and obstacles from rootGroup
       for (let i = this.rootGroup.children.length - 1; i >= 0; i--) {
         const child = this.rootGroup.children[i];
         if (child.name === 'terrain_mesh_group' || child.name === 'terrain_obstacles') {
@@ -37,32 +83,70 @@ export class TerrainManager {
         }
       }
 
-      let glbBuffer: ArrayBuffer | null = null;
-
-      if (glbUrl && typeof fetch === 'function') {
-        try {
-          const response = await fetch(glbUrl);
-          if (response.ok) {
-            glbBuffer = await response.arrayBuffer();
-          }
-        } catch {
-          // Fallback to in-memory generation if fetch fails (e.g. Node / Vitest)
+      // 2. Load manifest + DEM heights (skipped if customData was injected)
+      if (!this.dataInjected) {
+        if (!manifestUrl || !heightsUrl) {
+          throw new Error(
+            'TerrainManager: manifestUrl and heightsUrl are required when no customData is provided.',
+          );
         }
+
+        const manifestResp = await fetch(manifestUrl);
+        if (!manifestResp.ok) {
+          throw new Error(
+            `TerrainManager: failed to fetch terrain manifest (${manifestUrl}): ${manifestResp.status} ${manifestResp.statusText}`,
+          );
+        }
+        const manifest: TerrainManifest = await manifestResp.json();
+
+        const heightsResp = await fetch(heightsUrl);
+        if (!heightsResp.ok) {
+          throw new Error(
+            `TerrainManager: failed to fetch DEM heights (${heightsUrl}): ${heightsResp.status} ${heightsResp.statusText}`,
+          );
+        }
+        const heightsBuf = await heightsResp.arrayBuffer();
+
+        const expectedFloats = (manifest.segmentsZ + 1) * (manifest.segmentsX + 1);
+        const expectedBytes = expectedFloats * 4;
+        if (heightsBuf.byteLength !== expectedBytes) {
+          throw new Error(
+            `TerrainManager: DEM height buffer size mismatch: got ${heightsBuf.byteLength} bytes, ` +
+            `expected ${expectedBytes} (${expectedFloats} Float32 values for ${manifest.segmentsX}×${manifest.segmentsZ} grid)`,
+          );
+        }
+
+        const heights = new Float32Array(heightsBuf);
+        const assembled = assembleTerrainData(manifest, heights);
+
+        // Mutate the readonly placeholder with assembled data (no reassign needed)
+        Object.assign(this.terrainData, assembled);
+        this.demFormatVersion = manifest.demFormatVersion;
       }
 
-      if (!glbBuffer) {
-        const terrainMesh = buildTerrainMeshFromDEM(this.terrainData);
-        glbBuffer = await exportTerrainToGLBBuffer(terrainMesh);
+      // 3. Load GLB mesh
+      if (!glbUrl) {
+        throw new Error('TerrainManager: glbUrl is required.');
       }
+
+      const glbResponse = await fetch(glbUrl);
+      if (!glbResponse.ok) {
+        throw new Error(
+          `TerrainManager: failed to fetch GLB mesh (${glbUrl}): ${glbResponse.status} ${glbResponse.statusText}`,
+        );
+      }
+      const glbBuffer = await glbResponse.arrayBuffer();
 
       if (glbBuffer.byteLength < 12) {
-        throw new Error(`GLB buffer too small: ${glbBuffer.byteLength} bytes`);
+        throw new Error(`TerrainManager: GLB buffer too small: ${glbBuffer.byteLength} bytes`);
       }
 
       const view = new DataView(glbBuffer);
       const magic = view.getUint32(0, true);
       if (magic !== 0x46546c67) {
-        throw new Error(`Invalid glTF binary magic header: 0x${magic.toString(16)} (expected 0x46546c67)`);
+        throw new Error(
+          `TerrainManager: invalid glTF binary magic header: 0x${magic.toString(16)} (expected 0x46546c67)`,
+        );
       }
 
       this.glbByteLength = glbBuffer.byteLength;
@@ -71,7 +155,7 @@ export class TerrainManager {
       this.rootGroup.add(parsedScene);
       this.terrainData.glbLoaded = true;
 
-      // Attach low-poly obstacle meshes to rootGroup
+      // 4. Attach low-poly obstacle meshes
       this.buildObstacleMeshes();
     })();
 
