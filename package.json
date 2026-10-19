@@ -8,7 +8,8 @@
     "preview": "vite preview --port 4173",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "generate-glb": "tsx scripts/generate-glb.ts"
+    "generate-glb": "tsx scripts/generate-glb.ts",
+    "fetch-terrain": "tsx scripts/fetch-terrain.ts"
   },
   "dependencies": {
     "cannon-es": "^0.20.0",

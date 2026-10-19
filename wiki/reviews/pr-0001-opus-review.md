@@ -1,5 +1,8 @@
 # Principal Code Review & Root-Cause Post-Mortem — PR #1 (`feat/v1-core-game`)
 
+> [!CAUTION]
+> **Historical document — Iteration 1.** This review covers the original `feat/v1-core-game` branch with **synthetic `generateWhistlerDEM()`** and the `[1520, 2182]` elevation clamp. All checklist items that reference the synthetic generator, its calibration, or the `[1520, 2182]` bounds are **superseded by ADR-0007** (Iteration 2 real open-map terrain import). Do **not** follow those items as active mandates; consult `ADR-0007` and the updated ADR-0002/0006 for current rules. The remaining flat-shading, idempotent-init, coordinate-convention, physics-invariant, and E2E/CICD-hygiene checklist items remain in force.
+
 - **Reviewer:** Opus 5.5 Principal Code Review Sub-Agent
 - **Target Branch:** `feat/v1-core-game` → `main`
 - **Verdict:** 🟠 **REQUEST CHANGES** (4 Blockers, 13 Major, 12 Minor, 4 Performance, 3 Security, 5 Nits)

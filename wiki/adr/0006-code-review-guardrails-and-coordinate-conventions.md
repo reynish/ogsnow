@@ -65,7 +65,8 @@ flowchart LR
 - **Embedded Terrain Metadata in GLB (M10):** `buildTerrainMeshFromDEM(data)` attaches `mountainId`, `mountainName`, `region`, `width`, `length`, `segmentsX`, `segmentsZ`, `minElevation`, `maxElevation`, `dropZones`, and `obstacles` into `mesh.userData.terrainMetadata` (serialized into glTF `extras`), and `parseTerrainFromGLBBuffer` restores it onto the returned `THREE.Group.userData.terrainMetadata`.
 - **Topographical Elevation Bounds & Scope Note (M11):**
   - For Iteration 1 (`feat/v1-core-game`), Whistler Peak uses a deterministic procedural DEM (`generateWhistlerDEM`) calibrated to Whistler's real vertical bounds (`minElevation = 1520m`, `maxElevation = 2182m`). All ridge and bowl modulations MUST be clamped/normalized so `maxElevation` never exceeds `2,182m`. External GIS GeoTIFF/Mapbox raster tile ingestion is deferred to a future iteration.
-- **Spawn Fall-Line Corridor:** Every drop zone in `generateWhistlerDEM()` MUST enforce both:
+  > **Superseded by ADR-0007 (Iteration 2):** The `generateWhistlerDEM()` procedural DEM and its `[1520, 2182]` clamp are replaced by real open-map elevation data (AWS Open Data Terrarium tiles → committed `whistler-dem.bin` / `whistler-terrain.json`). External GIS ingestion is the committed pipeline, not deferred. The `TerrainData` contract, clearance rules, flat-shading, and metadata embedding remain in force and are restated in ADR-0007. **Historical context retained** — from `feat/real-terrain-import` onward, elevation assertions check `minElevation < 1600` and `maxElevation > 2100` (ADR-0007 Rule 4).
+- **Spawn Fall-Line Corridor:** Every drop zone MUST enforce both:
   1. A `25m` radial obstacle-free clearance around `(spawnX, spawnZ)`.
   2. A clear downhill fall-line corridor (`|x - spawnX| < 18m` for `z` in `[spawnZ, spawnZ + 80m]`) so an unsteered rider never collides immediately after drop-in.
 

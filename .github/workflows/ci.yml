@@ -32,11 +32,18 @@ jobs:
       - name: Install Playwright Chromium with dependencies
         run: npx playwright install --with-deps chromium
 
+      - name: Verify deterministic terrain artifacts (offline)
+        run: npm run generate-glb && git diff --exit-code public/assets/whistler-peak.glb public/assets/terrain/whistler-terrain.json public/assets/terrain/whistler-dem.bin
+
       - name: Build project
         run: npm run build
 
-      - name: Verify deterministic GLB asset
-        run: npx tsx scripts/generate-glb.ts && git diff --exit-code public/assets/whistler-peak.glb
+      - name: Check for Node-only terrain source leak in browser bundle
+        run: |
+          if grep -R -E "node:https|elevation-tiles-prod|terrarium" dist/assets/*.js; then
+            echo "ERROR: Node-only terrain source leaked into browser bundle"
+            exit 1
+          fi
 
       - name: Run unit and integration tests
         run: npm test

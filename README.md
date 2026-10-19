@@ -6,6 +6,8 @@ ogSnow is a browser-based 3D snowboarding game that bridges the gap between digi
 
 The game combines the accessibility of web gaming with the thrill of extreme sports, delivering an authentic, real-mountain snowboarding experience directly in the browser.
 
+> **Core fidelity principle:** the playable terrain MUST be a genuine import of a real-world location from **open map data** (open DEM elevation tiles / open geospatial data). Procedurally invented or "inspired-by" heightfields are explicitly out of scope. See **Section 6 — Real-World Terrain Import (Open Map Data Pipeline)** for the exact sources, pipeline, and acceptance criteria.
+
 ---
 
 ## 2. Target Audience
@@ -50,9 +52,9 @@ The game combines the accessibility of web gaming with the thrill of extreme spo
 
 *This target iteration delivers the core snowboarding mechanics, real-world map import pipeline, and adaptive audio systems.*
 
-\*   **Single Flagship Mountain:** One highly polished, accurate 3D map of a well-known real-world ski run (e.g., a specific peak in Whistler, BC or Chamonix, France).
+\*   **Single Flagship Mountain (real-world import):** One highly polished, accurate 3D map of a well-known real-world ski run — **Whistler Mountain, British Columbia, Canada** — built from actual open DEM elevation tiles of that location, not a synthetic approximation. See Section 6.
 
-\*   **Standardized Map Formatting:** The terrain will be imported using an easily repeatable standard (e.g., generating 3D meshes from real-world DEM/Heightmap data, exported as `.glTF` or `.glb` files). This ensures future mountains can be added quickly.
+\*   **Standardized Map Formatting:** The terrain is imported using an easily repeatable, config-driven standard: real-world DEM/heightmap tiles from open map providers are decoded, re-projected into game space, and exported as `.glTF`/`.glb` with a sidecar metadata file recording provenance. This ensures future real-world mountains can be added quickly (Section 6.6).
 
 \*   **Basic 3D Character:** A simple, low-poly 3D character model strapped to a snowboard.
 
@@ -70,7 +72,71 @@ The game combines the accessibility of web gaming with the thrill of extreme spo
 
 ---
 
-## 6. Technical Specifications &amp; Architecture
+## 6. Real-World Terrain Import (Open Map Data Pipeline)
+
+This iteration replaces the previous synthetic heightfield with a **genuine import of a real-world location from open map data**. Every terrain vertex elevation must trace back to a recorded, openly licensed DEM source tile. No playable elevation may be procedural.
+
+### 6.1 Flagship Location & Framing
+
+\*   **Location:** Whistler Mountain summit area, British Columbia, Canada (origin approx. `50.0596° N, 122.9570° W`).
+
+\*   **Playable extent:** approx. `1,600 m` across-slope x `3,200 m` down-slope, sampled from open DEM tiles at zoom `13–14` (`6.1–12.3 m/px` at this latitude). The committed Whistler build uses zoom `13` at a `12.5 m` grid spacing (z13 is already finer than the grid); the chosen zoom, tile set, and checksums are recorded in the artifact metadata (`whistler-terrain.json`).
+
+\*   **Orientation:** the real fall line is rotated so downhill runs along world **`+Z`** and lateral spread along `X`, preserving the existing coordinate convention (ADR-0006) so physics/camera/audio contracts are unchanged.
+
+### 6.2 Open Data Sources (free, no API key)
+
+\*   **Primary elevation — AWS Open Data "Terrarium" Terrain Tiles:** 8-bit RGB-encoded PNG elevation tiles (`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png`), derived from open SRTM/NED/etc. globally, public and keyless. Decode: `elevation = R*256 + G + B/256 - 32768`.
+
+\*   **Cross-check / fallback elevation — Copernicus DEM GLO-30** (AWS Open Data, keyless, 30 m) to validate the macro elevation profile and to fall back to if Terrarium is unavailable.
+
+\*   **Optional feature overlay — OpenStreetMap** (`piste:type=downhill` runs, `landuse=forest`/`natural=tree`, lifts) via Overpass API or Geofabrik extracts, © OpenStreetMap contributors (ODbL), used to place ski runs, tree glades, and obstacles when reachable.
+
+### 6.3 Build-Time Fetch Pipeline (network, run on demand)
+
+`scripts/fetch-terrain.ts` (new, `npm run fetch-terrain`):
+
+1. Resolve the pinned Terrarium tile set for the configured mountainous region and zoom; cache raw tiles under `.cache/terrain/` (gitignored).
+2. Decode RGB PNG pixels into real elevations.
+3. Re-project EPSG:3857 (Web Mercator) pixels into a local metric ENU frame anchored at the configured origin, rotated so the fall line is `+Z`.
+4. Resample onto the DEM grid and write the **committed source-of-truth artifacts**:
+   \*   `public/assets/terrain/whistler-dem.bin` — raw `Float32` elevation grid (row-major, `(segmentsZ+1) x (segmentsX+1)`).
+   \*   `public/assets/terrain/whistler-terrain.json` — origin lat/lon, EPSG:3857 tile URLs + `z/x/y`, zoom, per-tile checksums, grid dimensions, real `min/maxElevation`, and license/attribution strings.
+
+### 6.4 Offline Deterministic Derivation (CI-safe)
+
+`scripts/generate-glb.ts` (no network) reads the committed `.bin` + metadata JSON, then:
+
+1. Derives **drop zones** from the real terrain (steepest sustained fall lines with sane spacing and safe spawn clearance).
+2. Derives **obstacles** (trees / rocks / cliffs) from real elevation, slope, curvature, and tree-line height (optionally refined by OSM features).
+3. Builds the low-poly, flat-shaded, vertex-colored mesh and exports `public/assets/whistler-peak.glb`.
+
+Running the derivation twice MUST produce a byte-identical `.glb` (enables the existing CI `git diff --exit-code` determinism gate).
+
+### 6.5 Runtime Guarantees
+
+\*   The browser loads **only** the committed `.glb` + metadata; **zero network requests at runtime**.
+
+\*   Real-world `altitudeMeters` come from the imported DEM so the HUD shows true elevations (Whistler summit ≈ `2,182 m`).
+
+\*   **Attribution is user-visible** in the main menu (e.g., *"Elevation: AWS Open Data Terrain Tiles · Map data © OpenStreetMap contributors"*) and in a terrain provenance/info panel.
+
+### 6.6 Repeatability (Adding a New Mountain)
+
+A mountain registry entry (`id`, `name`, `region`, origin lat/lon, bounding box, zoom, license) is the only input required. Running `npm run fetch-terrain -- --mountain <id>` followed by `npm run generate-glb` yields a new `.glb` + metadata with **no code changes**.
+
+### 6.7 Acceptance Criteria (Definition of Done)
+
+1. Terrain grid elevations match independently decoded DEM tile elevations at N sample points within tolerance.
+2. `min/maxElevation` reflect the real imported tile range (committed Whistler build: `1,395.36 m`–`2,177.14 m`) rather than synthetic clamps, and `altitudeMeters` in `window.__OGSNOW_STATE__` is real-world.
+3. `npm run build`, `npm test`, and `npm run test:e2e` perform **zero network requests** and still pass with existing coverage (physics, audio, camera, UI, E2E).
+4. `npm run generate-glb` is byte-deterministic (clean `git diff`).
+5. Data-source attribution is visible in the main menu.
+6. Coordinate conventions (downhill `+Z`, ADR-0006) and all data contracts in `wiki/interfaces.md` remain unchanged, or are updated in `wiki/` + ADRs alongside the change.
+
+---
+
+## 7. Technical Specifications &amp; Architecture
 
 \*   **Platform:** Web Browser (Desktop optimized).
 
@@ -78,11 +144,7 @@ The game combines the accessibility of web gaming with the thrill of extreme spo
 
 \*   **Audio Engine:** Web Audio API, utilizing libraries like Tone.js or Howler.js to manage the dynamic mixing, stem fading, and real-time generation of the breakbeat tracks based on game variables (speed, airtime).
 
-\*   **Map Data Sourcing:** 
-
-    \*   Utilizing open-source GIS (Geographic Information System) data.
-
-    \*   Converting DEM (Digital Elevation Models) or Mapbox 3D terrain APIs into playable mesh data.
+\*   **Map Data Sourcing:** open-source GIS data only (no proprietary/paid APIs, no API keys), per Section 6: real DEM elevation tiles from AWS Open Data (Terrarium / Copernicus GLO-30) and optional OpenStreetMap feature overlays, converted into playable `.glb` mesh data.
 
 \*   **Physics Engine:** Cannon.js or Ammo.js to handle the complex physics of a board sliding on uneven, sloped terrain.
 

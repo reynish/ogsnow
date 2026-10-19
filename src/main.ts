@@ -30,7 +30,7 @@ export class GameApp {
   public elapsedSeconds: number = 0;
 
   // [ADR-0006 / PR-1 B2, M4] Initialization readiness and simulation pause state
-  private isReady: boolean = false;
+  public isReady: boolean = false;
   private initPromise: Promise<void> | null = null;
   private isSimulationPaused: boolean = false;
 
@@ -123,22 +123,38 @@ export class GameApp {
     this.registerGlobalBridge();
   }
 
-  // [ADR-0006 / PR-1 B2] Idempotent init flow avoiding drop-in overwrite
+  // [ADR-0006 / PR-1 B2 / PR-2 B1, B2] Idempotent init flow avoiding drop-in overwrite and failing loudly
   public async init(): Promise<void> {
     if (this.initPromise) {
       return this.initPromise;
     }
 
     this.initPromise = (async () => {
+      // Load all three committed terrain artifacts (GLB + manifest + DEM)
+      try {
+        await this.terrain.initialize();
+        // Use real drop zones from manifest as authoritative (ADR-0007)
+        this.config.dropZones = [...this.terrain.terrainData.dropZones];
+      } catch (err: any) {
+        this.isReady = false;
+        this.mode = 'error';
+        const msg = err?.message || 'Failed to load terrain artifacts';
+        console.error('Failed to load terrain artifacts during init:', err);
+        if (this.hud) {
+          this.hud.setMode('error');
+          this.hud.showErrorBanner(`TERRAIN LOAD ERROR: ${msg}`);
+        }
+        this.syncGlobalState();
+        throw err;
+      }
+
       const defaultDz =
         this.config.dropZones.find((dz) => dz.id === this.activeDropZoneId) ??
         this.config.dropZones[0];
 
-      // Load .glb terrain model
-      try {
-        await this.terrain.initialize('./assets/whistler-peak.glb');
-      } catch (err) {
-        console.warn('Failed to load terrain GLB during init:', err);
+      // Rebuild HUD main menu with real drop zones from manifest
+      if (this.hud) {
+        this.hud.updateDropZones(this.config.dropZones);
       }
 
       // [ADR-0006 / PR-1 B2] Only reset player to defaultDz and HUD to menu if mode is still menu
@@ -165,19 +181,23 @@ export class GameApp {
     return this.initPromise;
   }
 
-  // [ADR-0006 / PR-1 B2] Idempotent drop-in flow with camera snap and state readiness
+  // [ADR-0006 / PR-1 B2 / PR-2 B1, B2] Idempotent drop-in flow with camera snap and state readiness
   public async dropIn(dropZoneId: string): Promise<void> {
+    try {
+      await this.init();
+    } catch {
+      return;
+    }
+
+    if (this.mode === 'error' || !this.isReady) {
+      return;
+    }
+
     const dropZone =
       this.config.dropZones.find((dz) => dz.id === dropZoneId) ?? this.config.dropZones[0];
 
     this.activeDropZoneId = dropZone.id;
     this.mode = 'riding';
-
-    try {
-      await this.terrain.initialize('./assets/whistler-peak.glb');
-    } catch (err) {
-      console.warn('Failed to load terrain GLB during dropIn:', err);
-    }
 
     this.physics.resetAtDropZone(dropZone);
     const playerState = this.physics.getState();
@@ -199,7 +219,6 @@ export class GameApp {
       this.hud.update(playerState, audioState);
     }
 
-    this.isReady = true;
     this.syncGlobalState();
   }
 
@@ -324,6 +343,16 @@ export class GameApp {
         obstacleCount: this.terrain.terrainData.obstacles.length,
         glbLoaded: this.terrain.terrainData.glbLoaded,
         glbByteLength: this.terrain.glbByteLength,
+        // Provenance (ADR-0007)
+        realWorld: this.terrain.terrainData.realWorld ?? undefined,
+        source: this.terrain.terrainData.source?.provider !== undefined
+          ? `${this.terrain.terrainData.source.provider} (zoom ${this.terrain.terrainData.source.zoom}, ${this.terrain.terrainData.source.tiles.length} tiles)`
+          : undefined,
+        origin: this.terrain.terrainData.origin ?? undefined,
+        attribution: this.terrain.terrainData.attribution ?? undefined,
+        minElevation: this.terrain.terrainData.minElevation ?? undefined,
+        maxElevation: this.terrain.terrainData.maxElevation ?? undefined,
+        demFormatVersion: this.terrain.demFormatVersion,
       },
     };
 

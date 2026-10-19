@@ -1,0 +1,1696 @@
+{
+  "format": "ogsnow-terrain",
+  "demFormatVersion": 1,
+  "mountainId": "whistler",
+  "mountainName": "Whistler Mountain",
+  "region": "British Columbia, Canada",
+  "origin": {
+    "downhillAzimuthDeg": 180,
+    "latitudeDeg": 50.0596,
+    "longitudeDeg": -122.957
+  },
+  "width": 1600,
+  "length": 3200,
+  "segmentsX": 128,
+  "segmentsZ": 256,
+  "gridResolutionMeters": 12.5,
+  "minElevation": 1395.36,
+  "maxElevation": 2177.14,
+  "source": {
+    "maxElevationM": 2177.1438513694393,
+    "minElevationM": 1395.3575686542317,
+    "provider": "aws-terrarium",
+    "tiles": [
+      {
+        "sha256": "297fcfa3beb909dbca03dc51491b6047655bee1f68cf02dd6a9b2137a9c92771",
+        "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/13/1297/2775.png",
+        "x": 1297,
+        "y": 2775,
+        "z": 13
+      },
+      {
+        "sha256": "5706d3f4400111acfbb19194f43334bef89181817c8c1dbb73648a2695fb0bf7",
+        "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/13/1298/2775.png",
+        "x": 1298,
+        "y": 2775,
+        "z": 13
+      },
+      {
+        "sha256": "f7f61bfcdcfd0826cb98f99aacb31b93da1ff5bdc0330e4f4c55c045bd184628",
+        "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/13/1297/2776.png",
+        "x": 1297,
+        "y": 2776,
+        "z": 13
+      },
+      {
+        "sha256": "f710d2fc9a4715c521c3281ac4ef45e12cd8de4c6d03a2729d44d77496f543b9",
+        "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/13/1298/2776.png",
+        "x": 1298,
+        "y": 2776,
+        "z": 13
+      }
+    ],
+    "zoom": 13
+  },
+  "license": "AWS Open Data Terrain Tiles (Terrarium)",
+  "attribution": [
+    "Elevation: AWS Open Data Terrain Tiles (Terrarium)"
+  ],
+  "sampledControlPoints": [
+    {
+      "col": 0,
+      "elevationM": 1709.5,
+      "id": "cp-00",
+      "latDeg": 50.073973,
+      "lonDeg": -122.945806,
+      "px": 332364.77,
+      "py": 710567.23,
+      "row": 0,
+      "tileX": 1298,
+      "tileY": 2775,
+      "tileZ": 13,
+      "x": -800,
+      "z": -1600
+    },
+    {
+      "col": 32,
+      "elevationM": 1657.95,
+      "id": "cp-01",
+      "latDeg": 50.073973,
+      "lonDeg": -122.951403,
+      "px": 332332.16,
+      "py": 710567.23,
+      "row": 0,
+      "tileX": 1298,
+      "tileY": 2775,
+      "tileZ": 13,
+      "x": -400,
+      "z": -1600
+    },
+    {
+      "col": 64,
+      "elevationM": 1605.59,
+      "id": "cp-02",
+      "latDeg": 50.073973,
+      "lonDeg": -122.957,
+      "px": 332299.56,
+      "py": 710567.23,
+      "row": 0,
+      "tileX": 1298,
+      "tileY": 2775,
+      "tileZ": 13,
+      "x": 0,
+      "z": -1600
+    },
+    {
+      "col": 96,
+      "elevationM": 1586.87,
+      "id": "cp-03",
+      "latDeg": 50.073973,
+      "lonDeg": -122.962597,
+      "px": 332266.95,
+      "py": 710567.23,
+      "row": 0,
+      "tileX": 1297,
+      "tileY": 2775,
+      "tileZ": 13,
+      "x": 400,
+      "z": -1600
+    },
+    {
+      "col": 128,
+      "elevationM": 1483.75,
+      "id": "cp-04",
+      "latDeg": 50.073973,
+      "lonDeg": -122.968194,
+      "px": 332234.35,
+      "py": 710567.23,
+      "row": 0,
+      "tileX": 1297,
+      "tileY": 2775,
+      "tileZ": 13,
+      "x": 800,
+      "z": -1600
+    },
+    {
+      "col": 0,
+      "elevationM": 1865.16,
+      "id": "cp-05",
+      "latDeg": 50.066786,
+      "lonDeg": -122.945806,
+      "px": 332364.77,
+      "py": 710632.45,
+      "row": 64,
+      "tileX": 1298,
+      "tileY": 2775,
+      "tileZ": 13,
+      "x": -800,
+      "z": -800
+    },
+    {
+      "col": 32,
+      "elevationM": 1779.14,
+      "id": "cp-06",
+      "latDeg": 50.066786,
+      "lonDeg": -122.951403,
+      "px": 332332.16,
+      "py": 710632.45,
+      "row": 64,
+      "tileX": 1298,
+      "tileY": 2775,
+      "tileZ": 13,
+      "x": -400,
+      "z": -800
+    },
+    {
+      "col": 64,
+      "elevationM": 1873.08,
+      "id": "cp-07",
+      "latDeg": 50.066786,
+      "lonDeg": -122.957,
+      "px": 332299.56,
+      "py": 710632.45,
+      "row": 64,
+      "tileX": 1298,
+      "tileY": 2775,
+      "tileZ": 13,
+      "x": 0,
+      "z": -800
+    },
+    {
+      "col": 96,
+      "elevationM": 1792.13,
+      "id": "cp-08",
+      "latDeg": 50.066786,
+      "lonDeg": -122.962597,
+      "px": 332266.95,
+      "py": 710632.45,
+      "row": 64,
+      "tileX": 1297,
+      "tileY": 2775,
+      "tileZ": 13,
+      "x": 400,
+      "z": -800
+    },
+    {
+      "col": 128,
+      "elevationM": 1689.6,
+      "id": "cp-09",
+      "latDeg": 50.066786,
+      "lonDeg": -122.968194,
+      "px": 332234.35,
+      "py": 710632.45,
+      "row": 64,
+      "tileX": 1297,
+      "tileY": 2775,
+      "tileZ": 13,
+      "x": 800,
+      "z": -800
+    },
+    {
+      "col": 0,
+      "elevationM": 1974.33,
+      "id": "cp-10",
+      "latDeg": 50.0596,
+      "lonDeg": -122.945806,
+      "px": 332364.77,
+      "py": 710697.67,
+      "row": 128,
+      "tileX": 1298,
+      "tileY": 2776,
+      "tileZ": 13,
+      "x": -800,
+      "z": 0
+    },
+    {
+      "col": 32,
+      "elevationM": 1936.34,
+      "id": "cp-11",
+      "latDeg": 50.0596,
+      "lonDeg": -122.951403,
+      "px": 332332.16,
+      "py": 710697.67,
+      "row": 128,
+      "tileX": 1298,
+      "tileY": 2776,
+      "tileZ": 13,
+      "x": -400,
+      "z": 0
+    },
+    {
+      "col": 64,
+      "elevationM": 2162.11,
+      "id": "cp-12",
+      "latDeg": 50.0596,
+      "lonDeg": -122.957,
+      "px": 332299.56,
+      "py": 710697.67,
+      "row": 128,
+      "tileX": 1298,
+      "tileY": 2776,
+      "tileZ": 13,
+      "x": 0,
+      "z": 0
+    },
+    {
+      "col": 96,
+      "elevationM": 2081.98,
+      "id": "cp-13",
+      "latDeg": 50.0596,
+      "lonDeg": -122.962597,
+      "px": 332266.95,
+      "py": 710697.67,
+      "row": 128,
+      "tileX": 1297,
+      "tileY": 2776,
+      "tileZ": 13,
+      "x": 400,
+      "z": 0
+    },
+    {
+      "col": 128,
+      "elevationM": 1917.59,
+      "id": "cp-14",
+      "latDeg": 50.0596,
+      "lonDeg": -122.968194,
+      "px": 332234.35,
+      "py": 710697.67,
+      "row": 128,
+      "tileX": 1297,
+      "tileY": 2776,
+      "tileZ": 13,
+      "x": 800,
+      "z": 0
+    },
+    {
+      "col": 0,
+      "elevationM": 1981.28,
+      "id": "cp-15",
+      "latDeg": 50.052414,
+      "lonDeg": -122.945806,
+      "px": 332364.77,
+      "py": 710762.87,
+      "row": 192,
+      "tileX": 1298,
+      "tileY": 2776,
+      "tileZ": 13,
+      "x": -800,
+      "z": 800
+    },
+    {
+      "col": 32,
+      "elevationM": 2062.63,
+      "id": "cp-16",
+      "latDeg": 50.052414,
+      "lonDeg": -122.951403,
+      "px": 332332.16,
+      "py": 710762.87,
+      "row": 192,
+      "tileX": 1298,
+      "tileY": 2776,
+      "tileZ": 13,
+      "x": -400,
+      "z": 800
+    },
+    {
+      "col": 64,
+      "elevationM": 1978.19,
+      "id": "cp-17",
+      "latDeg": 50.052414,
+      "lonDeg": -122.957,
+      "px": 332299.56,
+      "py": 710762.87,
+      "row": 192,
+      "tileX": 1298,
+      "tileY": 2776,
+      "tileZ": 13,
+      "x": 0,
+      "z": 800
+    },
+    {
+      "col": 96,
+      "elevationM": 1796.46,
+      "id": "cp-18",
+      "latDeg": 50.052414,
+      "lonDeg": -122.962597,
+      "px": 332266.95,
+      "py": 710762.87,
+      "row": 192,
+      "tileX": 1297,
+      "tileY": 2776,
+      "tileZ": 13,
+      "x": 400,
+      "z": 800
+    },
+    {
+      "col": 128,
+      "elevationM": 1617.33,
+      "id": "cp-19",
+      "latDeg": 50.052414,
+      "lonDeg": -122.968194,
+      "px": 332234.35,
+      "py": 710762.87,
+      "row": 192,
+      "tileX": 1297,
+      "tileY": 2776,
+      "tileZ": 13,
+      "x": 800,
+      "z": 800
+    },
+    {
+      "col": 0,
+      "elevationM": 1864.75,
+      "id": "cp-20",
+      "latDeg": 50.045227,
+      "lonDeg": -122.945806,
+      "px": 332364.77,
+      "py": 710828.07,
+      "row": 256,
+      "tileX": 1298,
+      "tileY": 2776,
+      "tileZ": 13,
+      "x": -800,
+      "z": 1600
+    },
+    {
+      "col": 32,
+      "elevationM": 1728.34,
+      "id": "cp-21",
+      "latDeg": 50.045227,
+      "lonDeg": -122.951403,
+      "px": 332332.16,
+      "py": 710828.07,
+      "row": 256,
+      "tileX": 1298,
+      "tileY": 2776,
+      "tileZ": 13,
+      "x": -400,
+      "z": 1600
+    },
+    {
+      "col": 64,
+      "elevationM": 1606.82,
+      "id": "cp-22",
+      "latDeg": 50.045227,
+      "lonDeg": -122.957,
+      "px": 332299.56,
+      "py": 710828.07,
+      "row": 256,
+      "tileX": 1298,
+      "tileY": 2776,
+      "tileZ": 13,
+      "x": 0,
+      "z": 1600
+    },
+    {
+      "col": 96,
+      "elevationM": 1498.64,
+      "id": "cp-23",
+      "latDeg": 50.045227,
+      "lonDeg": -122.962597,
+      "px": 332266.95,
+      "py": 710828.07,
+      "row": 256,
+      "tileX": 1297,
+      "tileY": 2776,
+      "tileZ": 13,
+      "x": 400,
+      "z": 1600
+    },
+    {
+      "col": 128,
+      "elevationM": 1395.36,
+      "id": "cp-24",
+      "latDeg": 50.045227,
+      "lonDeg": -122.968194,
+      "px": 332234.35,
+      "py": 710828.07,
+      "row": 256,
+      "tileX": 1297,
+      "tileY": 2776,
+      "tileZ": 13,
+      "x": 800,
+      "z": 1600
+    }
+  ],
+  "dropZones": [
+    {
+      "id": "summit-express",
+      "name": "Peak Express Summit",
+      "elevationMeters": 2152.02,
+      "description": "Steep alpine bowl dropping directly from the Whistler summit ridge.",
+      "difficulty": "Double Black",
+      "spawnPosition": {
+        "x": 12.5,
+        "y": 2152.021484375,
+        "z": 150
+      },
+      "initialHeadingRad": 0
+    },
+    {
+      "id": "harmony-ridge",
+      "name": "Harmony Ridge Drop",
+      "elevationMeters": 2061.26,
+      "description": "Wide open powder cruisers with natural rollers and tree glades.",
+      "difficulty": "Blue",
+      "spawnPosition": {
+        "x": -125,
+        "y": 2061.256103515625,
+        "z": 700
+      },
+      "initialHeadingRad": 0.08
+    },
+    {
+      "id": "glacier-bowl",
+      "name": "Glacier Creek Chute",
+      "elevationMeters": 1836.87,
+      "description": "High-speed technical lower mountain run through rock outcrops and pines.",
+      "difficulty": "Black",
+      "spawnPosition": {
+        "x": 37.5,
+        "y": 1836.8671875,
+        "z": 1137.5
+      },
+      "initialHeadingRad": -0.06
+    }
+  ],
+  "obstacles": [
+    {
+      "id": "cliff_0",
+      "type": "cliff",
+      "position": {
+        "x": 462.5,
+        "y": 1503.75,
+        "z": 1550
+      },
+      "radius": 2.47,
+      "height": 4.01
+    },
+    {
+      "id": "cliff_1",
+      "type": "cliff",
+      "position": {
+        "x": 425,
+        "y": 2047.8643798828125,
+        "z": 187.5
+      },
+      "radius": 4.19,
+      "height": 5.5
+    },
+    {
+      "id": "rock_2",
+      "type": "rock",
+      "position": {
+        "x": 725,
+        "y": 1458.92626953125,
+        "z": 1362.5
+      },
+      "radius": 1.9,
+      "height": 1.72
+    },
+    {
+      "id": "rock_3",
+      "type": "rock",
+      "position": {
+        "x": -262.5,
+        "y": 2085.437744140625,
+        "z": 687.5
+      },
+      "radius": 1.31,
+      "height": 2.36
+    },
+    {
+      "id": "cliff_4",
+      "type": "cliff",
+      "position": {
+        "x": 137.5,
+        "y": 2054.0224609375,
+        "z": -175
+      },
+      "radius": 2.23,
+      "height": 5.82
+    },
+    {
+      "id": "rock_5",
+      "type": "rock",
+      "position": {
+        "x": -125,
+        "y": 1932.385986328125,
+        "z": -412.5
+      },
+      "radius": 1.9,
+      "height": 2.46
+    },
+    {
+      "id": "rock_6",
+      "type": "rock",
+      "position": {
+        "x": 500,
+        "y": 1590.8822021484375,
+        "z": -1412.5
+      },
+      "radius": 2.27,
+      "height": 1.57
+    },
+    {
+      "id": "tree_7",
+      "type": "tree",
+      "position": {
+        "x": 800,
+        "y": 1625.3629150390625,
+        "z": -1087.5
+      },
+      "radius": 1.3,
+      "height": 8.15
+    },
+    {
+      "id": "rock_8",
+      "type": "rock",
+      "position": {
+        "x": -125,
+        "y": 2024.070068359375,
+        "z": 812.5
+      },
+      "radius": 1.25,
+      "height": 1.03
+    },
+    {
+      "id": "cliff_9",
+      "type": "cliff",
+      "position": {
+        "x": 412.5,
+        "y": 1976.3685302734375,
+        "z": -300
+      },
+      "radius": 3.29,
+      "height": 7.2
+    },
+    {
+      "id": "rock_10",
+      "type": "rock",
+      "position": {
+        "x": 687.5,
+        "y": 1681.7933349609375,
+        "z": -1037.5
+      },
+      "radius": 1.27,
+      "height": 1.53
+    },
+    {
+      "id": "cliff_11",
+      "type": "cliff",
+      "position": {
+        "x": 575,
+        "y": 1781.9857177734375,
+        "z": -787.5
+      },
+      "radius": 2.84,
+      "height": 3.46
+    },
+    {
+      "id": "rock_12",
+      "type": "rock",
+      "position": {
+        "x": 450,
+        "y": 1820.8463134765625,
+        "z": -600
+      },
+      "radius": 1.4,
+      "height": 2.59
+    },
+    {
+      "id": "tree_13",
+      "type": "tree",
+      "position": {
+        "x": 800,
+        "y": 1566.956787109375,
+        "z": -1462.5
+      },
+      "radius": 0.86,
+      "height": 8.39
+    },
+    {
+      "id": "rock_14",
+      "type": "rock",
+      "position": {
+        "x": 162.5,
+        "y": 1752.7777099609375,
+        "z": -1337.5
+      },
+      "radius": 1.49,
+      "height": 3.39
+    },
+    {
+      "id": "cliff_15",
+      "type": "cliff",
+      "position": {
+        "x": 725,
+        "y": 1765.2584228515625,
+        "z": -500
+      },
+      "radius": 2.19,
+      "height": 6.61
+    },
+    {
+      "id": "rock_16",
+      "type": "rock",
+      "position": {
+        "x": -25,
+        "y": 1966.4742431640625,
+        "z": -487.5
+      },
+      "radius": 1.81,
+      "height": 2.08
+    },
+    {
+      "id": "rock_17",
+      "type": "rock",
+      "position": {
+        "x": -775,
+        "y": 2048.739990234375,
+        "z": 187.5
+      },
+      "radius": 1.71,
+      "height": 1.05
+    },
+    {
+      "id": "rock_18",
+      "type": "rock",
+      "position": {
+        "x": 762.5,
+        "y": 1540.837158203125,
+        "z": -1525
+      },
+      "radius": 1.62,
+      "height": 2.21
+    },
+    {
+      "id": "cliff_19",
+      "type": "cliff",
+      "position": {
+        "x": -112.5,
+        "y": 1686.08349609375,
+        "z": 1525
+      },
+      "radius": 2.5,
+      "height": 6.11
+    },
+    {
+      "id": "rock_20",
+      "type": "rock",
+      "position": {
+        "x": 387.5,
+        "y": 2022.3446044921875,
+        "z": 275
+      },
+      "radius": 2.02,
+      "height": 2.43
+    },
+    {
+      "id": "rock_21",
+      "type": "rock",
+      "position": {
+        "x": 612.5,
+        "y": 1525.018798828125,
+        "z": 1312.5
+      },
+      "radius": 2.35,
+      "height": 2.86
+    },
+    {
+      "id": "cliff_22",
+      "type": "cliff",
+      "position": {
+        "x": 600,
+        "y": 1806.09228515625,
+        "z": -775
+      },
+      "radius": 2.67,
+      "height": 4
+    },
+    {
+      "id": "rock_23",
+      "type": "rock",
+      "position": {
+        "x": 412.5,
+        "y": 1753.7706298828125,
+        "z": -875
+      },
+      "radius": 1.83,
+      "height": 1.12
+    },
+    {
+      "id": "rock_24",
+      "type": "rock",
+      "position": {
+        "x": 125,
+        "y": 1835.8955078125,
+        "z": 1050
+      },
+      "radius": 1.45,
+      "height": 1.05
+    },
+    {
+      "id": "cliff_25",
+      "type": "cliff",
+      "position": {
+        "x": 575,
+        "y": 1930.644775390625,
+        "z": -87.5
+      },
+      "radius": 3.29,
+      "height": 6.63
+    },
+    {
+      "id": "cliff_26",
+      "type": "cliff",
+      "position": {
+        "x": -637.5,
+        "y": 1804.0208740234375,
+        "z": 1575
+      },
+      "radius": 3.65,
+      "height": 5.01
+    },
+    {
+      "id": "rock_27",
+      "type": "rock",
+      "position": {
+        "x": 125,
+        "y": 1905.4647216796875,
+        "z": -537.5
+      },
+      "radius": 2.3,
+      "height": 1.91
+    },
+    {
+      "id": "rock_28",
+      "type": "rock",
+      "position": {
+        "x": -350,
+        "y": 1997.848388671875,
+        "z": 125
+      },
+      "radius": 2.41,
+      "height": 2.46
+    },
+    {
+      "id": "rock_29",
+      "type": "rock",
+      "position": {
+        "x": 462.5,
+        "y": 1636.6903076171875,
+        "z": 1150
+      },
+      "radius": 2.44,
+      "height": 3.04
+    },
+    {
+      "id": "rock_30",
+      "type": "rock",
+      "position": {
+        "x": -25,
+        "y": 1832.51123046875,
+        "z": -1075
+      },
+      "radius": 2.03,
+      "height": 1.36
+    },
+    {
+      "id": "cliff_31",
+      "type": "cliff",
+      "position": {
+        "x": 375,
+        "y": 1645.402587890625,
+        "z": 1225
+      },
+      "radius": 3.76,
+      "height": 5.51
+    },
+    {
+      "id": "rock_32",
+      "type": "rock",
+      "position": {
+        "x": -587.5,
+        "y": 1928.1468505859375,
+        "z": 1262.5
+      },
+      "radius": 1.4,
+      "height": 1.78
+    },
+    {
+      "id": "rock_33",
+      "type": "rock",
+      "position": {
+        "x": 125,
+        "y": 1844.4859619140625,
+        "z": -800
+      },
+      "radius": 1.94,
+      "height": 1.45
+    },
+    {
+      "id": "rock_34",
+      "type": "rock",
+      "position": {
+        "x": -100,
+        "y": 1950.7264404296875,
+        "z": -412.5
+      },
+      "radius": 1.99,
+      "height": 1.3
+    },
+    {
+      "id": "cliff_35",
+      "type": "cliff",
+      "position": {
+        "x": 500,
+        "y": 1667.8642578125,
+        "z": 1012.5
+      },
+      "radius": 3.82,
+      "height": 4.43
+    },
+    {
+      "id": "cliff_36",
+      "type": "cliff",
+      "position": {
+        "x": 562.5,
+        "y": 1796.982421875,
+        "z": 650
+      },
+      "radius": 3.6,
+      "height": 5.76
+    },
+    {
+      "id": "cliff_37",
+      "type": "cliff",
+      "position": {
+        "x": 12.5,
+        "y": 2058.26611328125,
+        "z": 400
+      },
+      "radius": 4.67,
+      "height": 7.28
+    },
+    {
+      "id": "cliff_38",
+      "type": "cliff",
+      "position": {
+        "x": -62.5,
+        "y": 1840.8818359375,
+        "z": -937.5
+      },
+      "radius": 4.06,
+      "height": 3.21
+    },
+    {
+      "id": "rock_39",
+      "type": "rock",
+      "position": {
+        "x": 375,
+        "y": 1690.519287109375,
+        "z": 1125
+      },
+      "radius": 1.18,
+      "height": 2.18
+    },
+    {
+      "id": "rock_40",
+      "type": "rock",
+      "position": {
+        "x": -100,
+        "y": 2057.8662109375,
+        "z": 575
+      },
+      "radius": 2.24,
+      "height": 3.05
+    },
+    {
+      "id": "rock_41",
+      "type": "rock",
+      "position": {
+        "x": 487.5,
+        "y": 1566.019775390625,
+        "z": -1512.5
+      },
+      "radius": 1.22,
+      "height": 1.88
+    },
+    {
+      "id": "tree_42",
+      "type": "tree",
+      "position": {
+        "x": 500,
+        "y": 1498.50439453125,
+        "z": 1537.5
+      },
+      "radius": 1.49,
+      "height": 8.63
+    },
+    {
+      "id": "rock_43",
+      "type": "rock",
+      "position": {
+        "x": -725,
+        "y": 2080.606689453125,
+        "z": 212.5
+      },
+      "radius": 2.22,
+      "height": 3.11
+    },
+    {
+      "id": "rock_44",
+      "type": "rock",
+      "position": {
+        "x": 250,
+        "y": 1543.0374755859375,
+        "z": 1562.5
+      },
+      "radius": 1.23,
+      "height": 2.94
+    },
+    {
+      "id": "cliff_45",
+      "type": "cliff",
+      "position": {
+        "x": -200,
+        "y": 2010.003662109375,
+        "z": -50
+      },
+      "radius": 2.31,
+      "height": 4.14
+    },
+    {
+      "id": "cliff_46",
+      "type": "cliff",
+      "position": {
+        "x": 387.5,
+        "y": 1664.8701171875,
+        "z": -1387.5
+      },
+      "radius": 2.52,
+      "height": 5.26
+    },
+    {
+      "id": "rock_47",
+      "type": "rock",
+      "position": {
+        "x": -225,
+        "y": 2005.4503173828125,
+        "z": -25
+      },
+      "radius": 2.13,
+      "height": 1.35
+    },
+    {
+      "id": "rock_48",
+      "type": "rock",
+      "position": {
+        "x": 437.5,
+        "y": 2050.94873046875,
+        "z": 162.5
+      },
+      "radius": 1.21,
+      "height": 2.64
+    },
+    {
+      "id": "rock_49",
+      "type": "rock",
+      "position": {
+        "x": 475,
+        "y": 1634.35107421875,
+        "z": -1325
+      },
+      "radius": 1.46,
+      "height": 2.98
+    },
+    {
+      "id": "rock_50",
+      "type": "rock",
+      "position": {
+        "x": -62.5,
+        "y": 1844.1019287109375,
+        "z": -712.5
+      },
+      "radius": 1,
+      "height": 2.71
+    },
+    {
+      "id": "rock_51",
+      "type": "rock",
+      "position": {
+        "x": 712.5,
+        "y": 1793.276123046875,
+        "z": -250
+      },
+      "radius": 1.62,
+      "height": 2.31
+    },
+    {
+      "id": "cliff_52",
+      "type": "cliff",
+      "position": {
+        "x": 12.5,
+        "y": 1813.4232177734375,
+        "z": -1200
+      },
+      "radius": 4.69,
+      "height": 3.17
+    },
+    {
+      "id": "rock_53",
+      "type": "rock",
+      "position": {
+        "x": 400,
+        "y": 1935.5400390625,
+        "z": -350
+      },
+      "radius": 2.48,
+      "height": 2.13
+    },
+    {
+      "id": "rock_54",
+      "type": "rock",
+      "position": {
+        "x": 525,
+        "y": 1906.59375,
+        "z": -487.5
+      },
+      "radius": 1.9,
+      "height": 1.85
+    },
+    {
+      "id": "rock_55",
+      "type": "rock",
+      "position": {
+        "x": 112.5,
+        "y": 1664.584716796875,
+        "z": -1550
+      },
+      "radius": 1.83,
+      "height": 2.93
+    },
+    {
+      "id": "rock_56",
+      "type": "rock",
+      "position": {
+        "x": -662.5,
+        "y": 1974.8231201171875,
+        "z": -12.5
+      },
+      "radius": 1.01,
+      "height": 1.92
+    },
+    {
+      "id": "rock_57",
+      "type": "rock",
+      "position": {
+        "x": 725,
+        "y": 1577.8963623046875,
+        "z": 1000
+      },
+      "radius": 2.44,
+      "height": 1.72
+    },
+    {
+      "id": "cliff_58",
+      "type": "cliff",
+      "position": {
+        "x": 437.5,
+        "y": 1725.73193359375,
+        "z": -912.5
+      },
+      "radius": 3.73,
+      "height": 6.46
+    },
+    {
+      "id": "tree_59",
+      "type": "tree",
+      "position": {
+        "x": 775,
+        "y": 1407.6624755859375,
+        "z": 1575
+      },
+      "radius": 1.48,
+      "height": 4.46
+    },
+    {
+      "id": "rock_60",
+      "type": "rock",
+      "position": {
+        "x": -25,
+        "y": 2018.4879150390625,
+        "z": -300
+      },
+      "radius": 1.08,
+      "height": 2.54
+    },
+    {
+      "id": "cliff_61",
+      "type": "cliff",
+      "position": {
+        "x": 537.5,
+        "y": 1731.2464599609375,
+        "z": -925
+      },
+      "radius": 2.73,
+      "height": 4.28
+    },
+    {
+      "id": "rock_62",
+      "type": "rock",
+      "position": {
+        "x": 325,
+        "y": 1710.409912109375,
+        "z": -1087.5
+      },
+      "radius": 2.25,
+      "height": 1.09
+    },
+    {
+      "id": "rock_63",
+      "type": "rock",
+      "position": {
+        "x": 112.5,
+        "y": 1846.8045654296875,
+        "z": 1037.5
+      },
+      "radius": 2.42,
+      "height": 1.97
+    },
+    {
+      "id": "rock_64",
+      "type": "rock",
+      "position": {
+        "x": 675,
+        "y": 1594.8289794921875,
+        "z": -1350
+      },
+      "radius": 1.87,
+      "height": 3.44
+    },
+    {
+      "id": "rock_65",
+      "type": "rock",
+      "position": {
+        "x": 237.5,
+        "y": 2100.002685546875,
+        "z": 162.5
+      },
+      "radius": 1.12,
+      "height": 2.14
+    },
+    {
+      "id": "rock_66",
+      "type": "rock",
+      "position": {
+        "x": 650,
+        "y": 1513.856689453125,
+        "z": 1287.5
+      },
+      "radius": 1.52,
+      "height": 1.5
+    },
+    {
+      "id": "rock_67",
+      "type": "rock",
+      "position": {
+        "x": -37.5,
+        "y": 2049.362060546875,
+        "z": -187.5
+      },
+      "radius": 1.34,
+      "height": 2.58
+    },
+    {
+      "id": "cliff_68",
+      "type": "cliff",
+      "position": {
+        "x": 775,
+        "y": 1734.8814697265625,
+        "z": -500
+      },
+      "radius": 2.8,
+      "height": 7.33
+    },
+    {
+      "id": "rock_69",
+      "type": "rock",
+      "position": {
+        "x": 212.5,
+        "y": 1991.5050048828125,
+        "z": 500
+      },
+      "radius": 1.1,
+      "height": 2.54
+    },
+    {
+      "id": "rock_70",
+      "type": "rock",
+      "position": {
+        "x": 525,
+        "y": 1977.614501953125,
+        "z": 262.5
+      },
+      "radius": 2.18,
+      "height": 3.35
+    },
+    {
+      "id": "rock_71",
+      "type": "rock",
+      "position": {
+        "x": -25,
+        "y": 1913.2979736328125,
+        "z": 1000
+      },
+      "radius": 2.15,
+      "height": 1.12
+    },
+    {
+      "id": "rock_72",
+      "type": "rock",
+      "position": {
+        "x": 562.5,
+        "y": 1847.706298828125,
+        "z": 525
+      },
+      "radius": 1.51,
+      "height": 3.15
+    },
+    {
+      "id": "rock_73",
+      "type": "rock",
+      "position": {
+        "x": 212.5,
+        "y": 1576.6468505859375,
+        "z": 1525
+      },
+      "radius": 2.16,
+      "height": 3.13
+    },
+    {
+      "id": "rock_74",
+      "type": "rock",
+      "position": {
+        "x": 650,
+        "y": 1690.8209228515625,
+        "z": 800
+      },
+      "radius": 1.84,
+      "height": 3.22
+    },
+    {
+      "id": "tree_75",
+      "type": "tree",
+      "position": {
+        "x": 687.5,
+        "y": 1553.4244384765625,
+        "z": 1137.5
+      },
+      "radius": 1.04,
+      "height": 4.07
+    },
+    {
+      "id": "rock_76",
+      "type": "rock",
+      "position": {
+        "x": 225,
+        "y": 2069.897216796875,
+        "z": -187.5
+      },
+      "radius": 1.34,
+      "height": 2.09
+    },
+    {
+      "id": "rock_77",
+      "type": "rock",
+      "position": {
+        "x": -287.5,
+        "y": 2137.70166015625,
+        "z": 312.5
+      },
+      "radius": 1.42,
+      "height": 1.22
+    },
+    {
+      "id": "cliff_78",
+      "type": "cliff",
+      "position": {
+        "x": -25,
+        "y": 1973.8983154296875,
+        "z": 837.5
+      },
+      "radius": 2.9,
+      "height": 5.8
+    },
+    {
+      "id": "rock_79",
+      "type": "rock",
+      "position": {
+        "x": 600,
+        "y": 1792.5518798828125,
+        "z": 612.5
+      },
+      "radius": 2.43,
+      "height": 1.53
+    },
+    {
+      "id": "cliff_80",
+      "type": "cliff",
+      "position": {
+        "x": 662.5,
+        "y": 1824.4517822265625,
+        "z": -625
+      },
+      "radius": 3.22,
+      "height": 6.33
+    },
+    {
+      "id": "rock_81",
+      "type": "rock",
+      "position": {
+        "x": -187.5,
+        "y": 2134.374755859375,
+        "z": 250
+      },
+      "radius": 2.04,
+      "height": 3.27
+    },
+    {
+      "id": "rock_82",
+      "type": "rock",
+      "position": {
+        "x": 400,
+        "y": 1645.455322265625,
+        "z": -1437.5
+      },
+      "radius": 2.01,
+      "height": 2.07
+    },
+    {
+      "id": "cliff_83",
+      "type": "cliff",
+      "position": {
+        "x": 50,
+        "y": 1748.1053466796875,
+        "z": -1362.5
+      },
+      "radius": 3.02,
+      "height": 7.83
+    },
+    {
+      "id": "rock_84",
+      "type": "rock",
+      "position": {
+        "x": -250,
+        "y": 2036.9459228515625,
+        "z": 862.5
+      },
+      "radius": 1.84,
+      "height": 2.46
+    },
+    {
+      "id": "rock_85",
+      "type": "rock",
+      "position": {
+        "x": -200,
+        "y": 2079.8076171875,
+        "z": 200
+      },
+      "radius": 1.49,
+      "height": 2.48
+    },
+    {
+      "id": "rock_86",
+      "type": "rock",
+      "position": {
+        "x": -262.5,
+        "y": 1923.090087890625,
+        "z": 1175
+      },
+      "radius": 2.09,
+      "height": 3.23
+    },
+    {
+      "id": "rock_87",
+      "type": "rock",
+      "position": {
+        "x": 300,
+        "y": 1939.47265625,
+        "z": -425
+      },
+      "radius": 1.27,
+      "height": 1.49
+    },
+    {
+      "id": "rock_88",
+      "type": "rock",
+      "position": {
+        "x": 525,
+        "y": 1529.78466796875,
+        "z": -1562.5
+      },
+      "radius": 2.12,
+      "height": 1.86
+    },
+    {
+      "id": "rock_89",
+      "type": "rock",
+      "position": {
+        "x": -487.5,
+        "y": 1968.9847412109375,
+        "z": 125
+      },
+      "radius": 2.3,
+      "height": 1.97
+    },
+    {
+      "id": "rock_90",
+      "type": "rock",
+      "position": {
+        "x": 287.5,
+        "y": 2055.002197265625,
+        "z": 300
+      },
+      "radius": 1.27,
+      "height": 1.53
+    },
+    {
+      "id": "cliff_91",
+      "type": "cliff",
+      "position": {
+        "x": -250,
+        "y": 1862.456298828125,
+        "z": -462.5
+      },
+      "radius": 3.89,
+      "height": 7.62
+    },
+    {
+      "id": "rock_92",
+      "type": "rock",
+      "position": {
+        "x": 550,
+        "y": 1547.25390625,
+        "z": 1312.5
+      },
+      "radius": 2,
+      "height": 2.25
+    },
+    {
+      "id": "rock_93",
+      "type": "rock",
+      "position": {
+        "x": 500,
+        "y": 1570.6126708984375,
+        "z": -1475
+      },
+      "radius": 1.71,
+      "height": 2.54
+    },
+    {
+      "id": "rock_94",
+      "type": "rock",
+      "position": {
+        "x": 612.5,
+        "y": 1835.6175537109375,
+        "z": -712.5
+      },
+      "radius": 2.28,
+      "height": 1.34
+    },
+    {
+      "id": "rock_95",
+      "type": "rock",
+      "position": {
+        "x": 300,
+        "y": 1995.7088623046875,
+        "z": 425
+      },
+      "radius": 1.47,
+      "height": 1.65
+    },
+    {
+      "id": "cliff_96",
+      "type": "cliff",
+      "position": {
+        "x": 250,
+        "y": 2020.5987548828125,
+        "z": -250
+      },
+      "radius": 2.75,
+      "height": 4.06
+    },
+    {
+      "id": "rock_97",
+      "type": "rock",
+      "position": {
+        "x": 387.5,
+        "y": 1816.99560546875,
+        "z": 762.5
+      },
+      "radius": 1.21,
+      "height": 3.37
+    },
+    {
+      "id": "cliff_98",
+      "type": "cliff",
+      "position": {
+        "x": 275,
+        "y": 1532.6690673828125,
+        "z": 1562.5
+      },
+      "radius": 2.14,
+      "height": 5.24
+    },
+    {
+      "id": "rock_99",
+      "type": "rock",
+      "position": {
+        "x": 87.5,
+        "y": 1968.3582763671875,
+        "z": 737.5
+      },
+      "radius": 2.2,
+      "height": 1.82
+    },
+    {
+      "id": "rock_100",
+      "type": "rock",
+      "position": {
+        "x": -350,
+        "y": 1979.74658203125,
+        "z": 75
+      },
+      "radius": 1.97,
+      "height": 1.74
+    },
+    {
+      "id": "cliff_101",
+      "type": "cliff",
+      "position": {
+        "x": -125,
+        "y": 1948.8499755859375,
+        "z": -362.5
+      },
+      "radius": 2.74,
+      "height": 7.86
+    },
+    {
+      "id": "rock_102",
+      "type": "rock",
+      "position": {
+        "x": 525,
+        "y": 1657.1829833984375,
+        "z": -1250
+      },
+      "radius": 1.6,
+      "height": 3.28
+    },
+    {
+      "id": "rock_103",
+      "type": "rock",
+      "position": {
+        "x": 300,
+        "y": 1661.2510986328125,
+        "z": 1250
+      },
+      "radius": 2.15,
+      "height": 2.14
+    },
+    {
+      "id": "rock_104",
+      "type": "rock",
+      "position": {
+        "x": 312.5,
+        "y": 1946.918701171875,
+        "z": -375
+      },
+      "radius": 1.48,
+      "height": 1.78
+    },
+    {
+      "id": "rock_105",
+      "type": "rock",
+      "position": {
+        "x": 637.5,
+        "y": 1929.979736328125,
+        "z": -25
+      },
+      "radius": 1.82,
+      "height": 1.46
+    },
+    {
+      "id": "cliff_106",
+      "type": "cliff",
+      "position": {
+        "x": 87.5,
+        "y": 1969.4146728515625,
+        "z": 700
+      },
+      "radius": 4.99,
+      "height": 4.41
+    },
+    {
+      "id": "cliff_107",
+      "type": "cliff",
+      "position": {
+        "x": -525,
+        "y": 1778.3160400390625,
+        "z": 1562.5
+      },
+      "radius": 2.72,
+      "height": 3.43
+    },
+    {
+      "id": "rock_108",
+      "type": "rock",
+      "position": {
+        "x": 100,
+        "y": 2061.70556640625,
+        "z": -150
+      },
+      "radius": 1.2,
+      "height": 2.9
+    },
+    {
+      "id": "cliff_109",
+      "type": "cliff",
+      "position": {
+        "x": -37.5,
+        "y": 1747.1785888671875,
+        "z": -1250
+      },
+      "radius": 2.96,
+      "height": 5.17
+    }
+  ],
+  "derivation": {
+    "algorithmVersion": 1,
+    "seed": 2402736721,
+    "treeLineElevationM": 1650,
+    "dropZoneCount": 3,
+    "obstacleCount": 110
+  }
+}

@@ -1,12 +1,24 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import fs from 'node:fs';
 import * as THREE from 'three';
 import { TerrainManager } from '../../src/terrain/TerrainManager';
+import { assembleTerrainData } from '../../src/terrain/glbPipeline';
 import { PhysicsEngine } from '../../src/physics/PhysicsEngine';
 import { PlayerController } from '../../src/player/PlayerController';
 import { SnowboardCharacter } from '../../src/player/SnowboardCharacter';
 import { FollowCamera } from '../../src/camera/FollowCamera';
 import { DEFAULT_GAME_CONFIG } from '../../src/config';
-import { PlayerInput } from '../../src/types';
+import { PlayerInput, TerrainData, TerrainManifest } from '../../src/types';
+
+// ─── Load real terrain fixtures from committed artifacts ──────────────
+
+function loadRealTerrainData(): TerrainData {
+  const raw = fs.readFileSync('public/assets/terrain/whistler-terrain.json', 'utf8');
+  const manifest: TerrainManifest = JSON.parse(raw);
+  const buf = fs.readFileSync('public/assets/terrain/whistler-dem.bin');
+  const heights = new Float32Array(buf.buffer);
+  return assembleTerrainData(manifest, heights);
+}
 
 describe('Physics, Character & Camera (Task 2)', () => {
   let terrain: TerrainManager;
@@ -20,9 +32,17 @@ describe('Physics, Character & Camera (Task 2)', () => {
     reset: false,
   };
 
+  let realDropZones: import('../../src/types').DropZone[];
+
   beforeEach(() => {
-    terrain = new TerrainManager();
-    physics = new PhysicsEngine(terrain);
+    terrain = new TerrainManager(loadRealTerrainData());
+    // Sync config drop zones with terrain data so bottom-boundary reset
+    // uses the real drop-zone spawn positions (PhysicsEngine uses config.dropZones for reset)
+    realDropZones = terrain.terrainData.dropZones;
+    physics = new PhysicsEngine(terrain, {
+      ...DEFAULT_GAME_CONFIG,
+      dropZones: realDropZones,
+    });
   });
 
   describe('Downhill Slope Gravity & Acceleration', () => {
@@ -266,14 +286,19 @@ describe('Physics, Character & Camera (Task 2)', () => {
       const dropZone = terrain.terrainData.dropZones[0];
       physics.resetAtDropZone(dropZone);
 
-      // Low speed: only 1 step (~2 km/h < 28 km/h)
-      physics.step(0.05, neutralInput);
+      // Build a small forward velocity (a step or two from drop zone)
+      for (let i = 0; i < 3; i++) {
+        physics.step(0.05, neutralInput);
+      }
       expect(physics.getState().speedKmh).toBeLessThan(DEFAULT_GAME_CONFIG.crashSpeedThresholdKmh);
 
-      // Place rider within collision radius of obstacle
+      // Place rider just inside the obstacle and inject a small forward velocity
       (physics as any).state.position.x = obs.position.x + 0.1;
       (physics as any).state.position.y = obs.position.y;
       (physics as any).state.position.z = obs.position.z + 0.1;
+      (physics as any).state.velocity = { x: 0, y: 0, z: 1.0 };
+      (physics as any).state.speedMs = 1.0;
+      (physics as any).state.speedKmh = 3.6;
 
       const postStep = physics.step(0.05, neutralInput);
 
@@ -301,8 +326,8 @@ describe('Physics, Character & Camera (Task 2)', () => {
       const dropZone = terrain.terrainData.dropZones[0];
       physics.resetAtDropZone(dropZone);
 
-      // Build forward speed >= 28 km/h
-      for (let i = 0; i < 20; i++) {
+      // Build forward speed >= 28 km/h with sufficient run-up for real terrain
+      for (let i = 0; i < 40; i++) {
         physics.step(0.05, { ...neutralInput, tuck: true });
       }
       expect(physics.getState().speedKmh).toBeGreaterThanOrEqual(DEFAULT_GAME_CONFIG.crashSpeedThresholdKmh);

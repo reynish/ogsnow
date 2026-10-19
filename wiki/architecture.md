@@ -13,14 +13,18 @@ flowchart TD
     Player["Player (Desktop Browser User)"]
     E2ERunner["Playwright E2E Runner (Headless Chromium)"]
     OGSnow["ogSnow Web Application (3D Snowboarding Game)"]
-    GISData["Real-World DEM / GLB Mountain Data (Whistler Peak)"]
+    GISData["Committed Real-World DEM / GLB Artifacts (whistler-dem.bin + terrain.json + .glb)"]
+    OpenData["Open Map Data Providers (AWS Open Data Terrarium, Copernicus GLO-30, OSM)"]
+    FetchPipeline["Build-Time Fetch Pipeline (scripts/fetch-terrain.ts — network, on-demand)"]
     CICD["GitHub Actions CI/CD Pipeline"]
 
     Player -->|"Keyboard / Controller Inputs (Steer, Carve, Tuck, Jump, Drop-In)"| OGSnow
-    OGSnow -->|"3D Low-Poly WebGL Visuals & Adaptive PS1 Jungle Audio"| Player
-    GISData -->|"Standardized Heightfield & .glb Terrain Mesh"| OGSnow
+    OGSnow -->|"3D Low-Poly WebGL Visuals, Adaptive PS1 Jungle Audio & Attribution"| Player
+    GISData -->|"Standardized Heightfield, .glb Terrain Mesh & Provenance Manifest"| OGSnow
+    OpenData -->|"Terrarium PNG Elevation Tiles / Copernicus COGs / OSM Extracts (keyless)"| FetchPipeline
+    FetchPipeline -->|"Writes Committed Source-of-Truth DEM Artifacts"| GISData
     E2ERunner -->|"Simulates Inputs & Inspects window.__OGSNOW_STATE__"| OGSnow
-    CICD -->|"Builds, Unit Tests (Vitest), & Runs E2E Suite"| OGSnow
+    CICD -->|"Builds, Unit Tests (Vitest), Offline Derivation Diff & Runs E2E Suite"| OGSnow
 ```
 
 ---
@@ -31,8 +35,8 @@ Inside the browser runtime, **ogSnow** executes within a single-page TypeScript/
 
 ```mermaid
 flowchart LR
-    subgraph Browser["Web Browser Runtime (Desktop)"]
-        UIContainer["UI & HUD Layer (DOM / CSS Overlay)"]
+    subgraph Browser["Web Browser Runtime (Desktop) — zero network"]
+        UIContainer["UI & HUD Layer (DOM / CSS Overlay, Attribution)"]
         GameCore["Game Coordinator & State Store (main.ts)"]
         RenderEngine["3D WebGL Renderer (Three.js Scene, Camera, GLTF)"]
         PhysicsWorld["Physics & Slope Solver (cannon-es + DEM Heightfield)"]
@@ -40,18 +44,30 @@ flowchart LR
         E2EHook["Telemetry Bridge (window.__OGSNOW_STATE__)"]
     end
 
-    subgraph Assets["Static Assets & DEM Pipeline"]
-        GLBAsset["Flagship Mountain Asset (whistler-peak.glb + DEM Grid)"]
+    subgraph Assets["Committed Static Assets (bundled, relative paths)"]
+        GLBAsset["whistler-peak.glb (Render Mesh + Metadata Extras)"]
+        DEMAsset["whistler-dem.bin (Float32 Heightfield)"]
+        ManifestAsset["whistler-terrain.json (Provenance, DropZones, Obstacles, Attribution)"]
     end
 
-    UIContainer -->|"Selects Mountain & DropZone / Reads Telemetry"| GameCore
+    subgraph BuildTime["Build-Time Pipeline (Node, not shipped to browser)"]
+        FetchScript["scripts/fetch-terrain.ts (Network One-Shot)"]
+        GenScript["scripts/generate-glb.ts (Offline Deterministic Derivation)"]
+    end
+
+    UIContainer -->|"Selects Mountain & DropZone / Reads Telemetry & Attribution"| GameCore
     GameCore -->|"Steps Simulation (dt) & Reads PlayerInput"| PhysicsWorld
-    GLBAsset -->|"Loads .glb Mesh & Elevation Matrix"| RenderEngine
-    GLBAsset -->|"Provides Height / Normal Queries"| PhysicsWorld
+    GLBAsset -->|"Loads .glb Mesh"| RenderEngine
+    DEMAsset -->|"Provides Height / Normal Queries"| PhysicsWorld
+    ManifestAsset -->|"Provides DropZones, Obstacles, Provenance & Attribution"| GameCore
     PhysicsWorld -->|"Updates PlayerState (Position, Velocity, Pitch, Grounded)"| GameCore
     GameCore -->|"Syncs Character, Obstacles & FollowCamera"| RenderEngine
     GameCore -->|"Modulates Stems & SFX by Speed / Carve / Crash"| AudioEngine
     GameCore -->|"Publishes Live Snapshot"| E2EHook
+    FetchScript -->|"Decodes + Reprojects + Resamples"| DEMAsset
+    FetchScript -->|"Writes Provenance Manifest"| ManifestAsset
+    GenScript -->|"Reads committed .bin + .json, derives, exports"| GLBAsset
+    GenScript -->|"Enriches Manifest with DropZones + Obstacles"| ManifestAsset
 ```
 
 ---
@@ -68,9 +84,14 @@ flowchart TD
         Types["Data Contracts (src/types.ts)"]
     end
 
-    subgraph TerrainPkg["Terrain & GLB Pipeline (src/terrain/)"]
-        DEMGen["WhistlerDEM & GLBPipeline (src/terrain/glbPipeline.ts)"]
+    subgraph TerrainPkg["Terrain Pipeline (src/terrain/, scripts/)"]
+        Registry["Mountain Registry (src/terrain/mountains.ts)"]
+        Source["Node-Only Terrain Source (src/terrain/terrainSource.ts)"]
+        Derivation["Deterministic Derivation (src/terrain/terrainDerivation.ts)"]
+        Pipeline["GLB Build/Parse (src/terrain/glbPipeline.ts)"]
         TerrainMgr["TerrainManager (src/terrain/TerrainManager.ts)"]
+        Fetch["scripts/fetch-terrain.ts (Node/Network)"]
+        Gen["scripts/generate-glb.ts (Node/Offline)"]
     end
 
     subgraph PhysicsPlayerPkg["Physics, Character & Camera (src/physics/, src/player/, src/camera/)"]
@@ -95,26 +116,38 @@ flowchart TD
     Main --> JungleAudio
     Main --> HUDMgr
 
-    TerrainMgr --> DEMGen
+    TerrainMgr --> Pipeline
     PhysEng --> TerrainMgr
     CamCtrl --> TerrainMgr
+
+    Fetch --> Registry
+    Fetch --> Source
+    Gen --> Registry
+    Gen --> Source
+    Gen --> Derivation
+    Gen --> Pipeline
 ```
 
 ### Component Responsibilities
 
 | Component | File Path | Responsibility |
 | :--- | :--- | :--- |
-| `Types` | `src/types.ts` | Canonical TypeScript interfaces (`PlayerState`, `TerrainData`, `DropZone`, `AudioState`, `GameConfig`, `OGSnowGlobalState`). |
-| `Config` | `src/config.ts` | Default physics constants, Whistler Peak metadata, 3 drop zones, audio BPM/thresholds, camera parameters. |
-| `GLBPipeline` | `src/terrain/glbPipeline.ts` | Generates deterministic Whistler Peak DEM heightmap data, builds low-poly vertex-colored Three.js geometry, exports/loads `.glb` binary buffers (`GLTFExporter` / `GLTFLoader`). |
-| `TerrainManager` | `src/terrain/TerrainManager.ts` | Manages the 3D mountain mesh, natural obstacles (trees, rocks, cliffs), bilinear height/normal queries `getHeightAt(x, z)` and `getNormalAt(x, z)`. |
+| `Types` | `src/types.ts` | Canonical TypeScript interfaces (`PlayerState`, `TerrainData`, `DropZone`, `AudioState`, `GameConfig`, `OGSnowGlobalState`) plus optional provenance fields (`GeoOrigin`, `TerrainSourceMetadata`, `SampledControlPoint`). |
+| `Config` | `src/config.ts` | Default physics constants, Whistler Peak metadata, drop zones, audio BPM/thresholds, camera parameters. |
+| `Registry` | `src/terrain/mountains.ts` | Pure-data mountain registry (`MOUNTAIN_REGISTRY`, `getMountainById`): origin, extent, zoom, grid segments, tree line, license/attribution, pinned tiles. |
+| `Source` | `src/terrain/terrainSource.ts` | **Node-only.** Terrarium tile URL builder, PNG RGB decode, EPSG:3857 ↔ lat/lon, rotated-rectangle ENU sampling, `Float32` resample, provenance builder. Never imported by browser code. |
+| `Derivation` | `src/terrain/terrainDerivation.ts` | Deterministic, seeded drop-zone selection (sustained steep fall lines, spacing, spawn clearance) and obstacle derivation (tree line, slope, curvature; optional OSM refinement hook). Browser-safe (no `node:` imports) for unit testing. |
+| `GLBPipeline` | `src/terrain/glbPipeline.ts` | Assembles `TerrainData`, builds low-poly vertex-colored Three.js geometry, exports/loads `.glb` (`GLTFExporter` / `GLTFLoader`). No synthetic heightfield. |
+| `TerrainManager` | `src/terrain/TerrainManager.ts` | Loads committed `.glb` + `.json` + `.bin`, reconstructs `TerrainData`, manages mesh + obstacles, bilinear `getHeightAt(x,z)`/`getNormalAt(x,z)`. |
+| `Fetch` | `scripts/fetch-terrain.ts` | Node CLI (`npm run fetch-terrain -- --mountain <id>`): downloads pinned tiles → `.cache/terrain/`, decodes/reprojects/resamples, writes `<id>-dem.bin` + `<id>-terrain.json`. |
+| `Gen` | `scripts/generate-glb.ts` | Node CLI (offline): reads committed `.bin` + `.json`, runs derivation, exports deterministic `.glb`, enriches manifest. |
 | `PhysicsEngine` | `src/physics/PhysicsEngine.ts` | `cannon-es` world + slope-aligned snowboard dynamics: gravity projection along slope normal, carving deceleration, edge grip, obstacle/boundary collisions, crash recovery, and airtime detection. |
 | `InputController` | `src/player/PlayerController.ts` | Captures keyboard (`WASD` / Arrow keys / `Space` / `R`) and Gamepad inputs, plus programmatic input injection for E2E testing. |
 | `SnowboardCharacter` | `src/player/SnowboardCharacter.ts` | Low-poly PS1-style 3D snowboarder + board mesh hierarchy with procedural lean, carve tilt, pitch alignment, and snow spray particles. |
 | `FollowCamera` | `src/camera/FollowCamera.ts` | Third-person dynamic chase camera that interpolates position, look-at target, pitch tilt, and FOV (`62°` to `84°`) based on speed and slope pitch, with instant snap on drop-in/reset. |
-| `JungleAudioEngine` | `src/audio/JungleAudioEngine.ts` | Web Audio API procedural 170 BPM PS1 Jungle/Amen breakbeat synthesizer & mixer: atmospheric pad stem, bassline stem (`> 15 km/h`), breakbeat drum stem (`> 30 km/h`, full `>= 60 km/h`), wind noise generator, and snow-carve bandpass filter. |
-| `HUDManager` | `src/ui/HUDManager.ts` | Main menu mountain/drop-zone selector, HUD speedometer (`km/h`), altitude/vertical drop meter, audio stem activity indicators, and crash/airtime notifications. |
-| `GameApp` | `src/main.ts` | Top-level lifecycle orchestrator, `requestAnimationFrame` loop, deterministic `step(dt)` hook, and `window.__OGSNOW_STATE__` publisher. |
+| `JungleAudioEngine` | `src/audio/JungleAudioEngine.ts` | Web Audio API procedural 170 BPM PS1 Jungle/Amen breakbeat synthesizer & mixer. |
+| `HUDManager` | `src/ui/HUDManager.ts` | Main menu mountain/drop-zone selector, attribution footer (`data-testid="terrain-attribution"`), HUD speedometer, altitude, audio stems, crash/airtime notifications. |
+| `GameApp` | `src/main.ts` | Top-level lifecycle orchestrator, `requestAnimationFrame` loop, deterministic `step(dt)` hook, and `window.__OGSNOW_STATE__` publisher (incl. terrain provenance). |
 
 ---
 
@@ -131,17 +164,55 @@ sequenceDiagram
     participant Phys as PhysicsEngine
     participant Audio as JungleAudioEngine
 
-    App->>Terrain: initialize() (Idempotent load/hydrate Whistler Peak .glb & DEM)
-    Terrain-->>App: TerrainData & Three.js Group ready
-    App->>UI: renderMainMenu(mountain, dropZones) & enable drop-in buttons
-    App->>App: Publish window.__OGSNOW_STATE__ (mode = "menu", ready = true)
-    User->>UI: Click Drop Zone (e.g. "Peak Express Summit - 2,182m")
+    App->>Terrain: initialize(artifacts) (idempotent: .glb + .json + .bin)
+    Terrain-->>App: TerrainData (real DEM heights, dropZones, obstacles, provenance) & Three.js Group ready
+    App->>UI: renderMainMenu(mountain, dropZones, attribution) & enable drop-in buttons
+    App->>App: Publish window.__OGSNOW_STATE__ (mode = "menu", ready = true, terrain.realWorld = true)
+    User->>UI: Click Drop Zone
     UI->>App: onDropIn(dropZoneId)
     App->>Phys: resetAtDropZone(dropZone)
     App->>Audio: init() & resume AudioContext
     App->>UI: setMode("riding")
     App->>App: Publish window.__OGSNOW_STATE__ (mode = "riding", ready = true)
 ```
+
+### 4.3 Build-Time Terrain Import Data Flow (ADR-0007)
+
+```mermaid
+flowchart LR
+    subgraph Network["Stage A — Network Fetch (on-demand, developer machine only)"]
+        Tiles["Terrarium PNG Tiles (z13 pinned)"]
+        Cache[".cache/terrain/ (gitignored)"]
+        Fetch["scripts/fetch-terrain.ts"]
+    end
+
+    subgraph Committed["Committed Source-of-Truth Artifacts (repo)"]
+        Bin["whistler-dem.bin (Float32 grid)"]
+        Man["whistler-terrain.json (provenance + control points)"]
+    end
+
+    subgraph Offline["Stage B — Offline Deterministic Derivation (CI-safe)"]
+        Gen["scripts/generate-glb.ts"]
+        Deriv["terrainDerivation.ts (drop zones + obstacles)"]
+    end
+
+    subgraph RuntimeArtifacts["Committed Runtime Artifacts"]
+        GLB["whistler-peak.glb"]
+        Man2["whistler-terrain.json (enriched: dropZones, obstacles, attribution)"]
+    end
+
+    Tiles -->|"download + cache"| Cache
+    Cache --> Fetch
+    Fetch -->|"decode, reproject, resample, checksum"| Bin
+    Fetch -->|"write provenance manifest"| Man
+    Bin --> Gen
+    Man --> Gen
+    Gen --> Deriv
+    Deriv -->|"seeded drop zones + obstacles"| Gen
+    Gen -->|"build mesh + export deterministic .glb"| GLB
+    Gen -->|"enrich manifest"| Man2
+```
+
 
 ### 4.2 Per-Frame Game Loop (`tick(dt)`)
 

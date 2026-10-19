@@ -1,4 +1,4 @@
-import { AudioState, GameConfig, GameMode, PlayerState } from '../types';
+import { AudioState, DropZone, GameConfig, GameMode, PlayerState } from '../types';
 
 export interface HUDCallbacks {
   onSelectDropZone: (dropZoneId: string) => void;
@@ -24,8 +24,10 @@ export class HUDManager {
   private airtimeBannerEl!: HTMLElement;
   private carveBannerEl!: HTMLElement;
   private carveMeterFillEl!: HTMLElement;
+  private errorBannerEl?: HTMLElement;
 
   private currentMode: GameMode = 'menu';
+  private dropZonesEnabled: boolean = false;
 
   // [PR-1 M1/Security] Cached HUD values to eliminate redundant DOM writes
   private cachedSpeedText: string = '';
@@ -44,16 +46,51 @@ export class HUDManager {
     this.render();
   }
 
-  public setMode(mode: GameMode, activeDropZoneId?: string): void {
-    this.currentMode = mode;
-
-    if (mode === 'menu') {
+  /**
+   * Rebuild the drop-zone grid in the main menu with new data (e.g. after terrain init).
+   */
+  public updateDropZones(dropZones: DropZone[]): void {
+    this.dropZonesEnabled = true;
+    this.config = { ...this.config, dropZones };
+    // Rebuild the entire menu UI with updated drop zones
+    this.render();
+    // Restore visibility state
+    if (this.currentMode === 'menu' || this.currentMode === 'error') {
       this.mainMenuEl.classList.remove('hidden');
       this.hudOverlayEl.classList.add('hidden');
     } else {
       this.mainMenuEl.classList.add('hidden');
       this.hudOverlayEl.classList.remove('hidden');
+    }
+  }
+
+  public showErrorBanner(message: string): void {
+    if (!this.errorBannerEl) {
+      this.errorBannerEl = document.createElement('div');
+      this.errorBannerEl.className = 'terrain-error-banner retro-shadow retro-skew';
+      this.errorBannerEl.setAttribute('data-testid', 'terrain-error-banner');
+      this.container.appendChild(this.errorBannerEl);
+    }
+    this.errorBannerEl.textContent = message;
+    this.errorBannerEl.style.display = 'block';
+  }
+
+  public setMode(mode: GameMode, activeDropZoneId?: string): void {
+    this.currentMode = mode;
+
+    if (mode === 'menu' || mode === 'error') {
+      this.mainMenuEl.classList.remove('hidden');
+      this.hudOverlayEl.classList.add('hidden');
+      if (mode === 'error' && this.errorBannerEl) {
+        this.errorBannerEl.style.display = 'block';
+      }
+    } else {
+      this.mainMenuEl.classList.add('hidden');
+      this.hudOverlayEl.classList.remove('hidden');
       this.cachedActiveBanner = 'none';
+      if (this.errorBannerEl) {
+        this.errorBannerEl.style.display = 'none';
+      }
 
       if (activeDropZoneId) {
         const dropZone = this.config.dropZones.find((dz) => dz.id === activeDropZoneId);
@@ -228,7 +265,15 @@ export class HUDManager {
       card.appendChild(elevDiv);
       card.appendChild(descDiv);
 
+      if (!this.dropZonesEnabled) {
+        card.disabled = true;
+        card.classList.add('disabled');
+        card.style.pointerEvents = 'none';
+        card.style.opacity = '0.5';
+      }
+
       card.addEventListener('click', (e) => {
+        if (!this.dropZonesEnabled || card.disabled) return;
         (e.currentTarget as HTMLElement)?.blur();
         this.callbacks.onSelectDropZone(dz.id);
       });
@@ -249,6 +294,13 @@ export class HUDManager {
       <div class="soundtrack-info">170 BPM AMEN JUNGLE SOUNDTRACK</div>
     `;
     this.mainMenuEl.appendChild(footerEl);
+
+    // Attribution (ADR-0007, displayed in main menu)
+    const attributionEl = document.createElement('div');
+    attributionEl.setAttribute('data-testid', 'terrain-attribution');
+    attributionEl.className = 'terrain-attribution';
+    attributionEl.textContent = this.config.attribution?.[0] ?? '';
+    this.mainMenuEl.appendChild(attributionEl);
 
     // ==========================================
     // 2. IN-GAME HUD (#hud-overlay)
