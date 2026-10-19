@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { TerrainData, TerrainObstacle, DropZone } from '../types';
-import { DEFAULT_GAME_CONFIG } from '../config';
+import { TerrainData } from '../types';
+import { deriveTerrain } from './terrainDerivation';
 
 // [PR-1 Security/B3]: Guard FileReader polyfill so it only installs in Node.js / Vitest environments
 // where window is undefined and FileReader is absent. It must never run or mutate globalThis
@@ -29,228 +29,33 @@ function ensureFileReaderPolyfill(): void {
 }
 ensureFileReaderPolyfill();
 
-// Deterministic PRNG for obstacle generation
-function createSeededRandom(seed: number = 42) {
-  let s = seed % 2147483647;
-  if (s <= 0) s += 2147483646;
-  return function () {
-    s = (s * 16807) % 2147483647;
-    return (s - 1) / 2147483646;
-  };
-}
-
-// Monotonic Hermite cubic spline interpolation for downhill elevation
-function hermite(t: number, p0: number, p1: number, m0: number, m1: number, dz: number): number {
-  const t2 = t * t;
-  const t3 = t2 * t;
-  const h00 = 2 * t3 - 3 * t2 + 1;
-  const h10 = t3 - 2 * t2 + t;
-  const h01 = -2 * t3 + 3 * t2;
-  const h11 = t3 - t2;
-  return h00 * p0 + h10 * m0 * dz + h01 * p1 + h11 * m1 * dz;
-}
-
-export function generateWhistlerDEM(
-  width: number = 400,
-  length: number = 1200,
-  segmentsX: number = 64,
-  segmentsZ: number = 192
+/**
+ * Build a complete TerrainData from a committed manifest + raw Float32 heights.
+ * Runs deterministic derivation (drop zones, obstacles) — never synthesizes elevations.
+ * (ADR-0007: replaces the removed generateWhistlerDEM synthetic spline.)
+ */
+export function assembleTerrainData(
+  manifest: import('../types').TerrainManifest,
+  heights: Float32Array,
 ): TerrainData {
-  const stride = segmentsX + 1;
-  const totalVertices = (segmentsZ + 1) * stride;
-  const heights = new Float32Array(totalVertices);
+  return deriveTerrain(manifest, heights);
+}
 
-  // Real Whistler Peak profile control points (M11):
-  // Summit ridge (z = -600, 2182m) -> Peak Express Summit (z = -520, ~2130m) -> Harmony Ridge (z = -260, 1940m) ->
-  // Glacier Creek Chute (z = -40, 1780m) -> Lower Mountain (z = 250, 1640m) -> Base (z = 600, 1520m)
-  // Max elevation never exceeds 2182m (Whistler Peak summit).
-  const pts = [
-    { z: -600, h: 2182 },
-    { z: -520, h: 2130 },
-    { z: -260, h: 1940 },
-    { z: -40, h: 1780 },
-    { z: 250, h: 1640 },
-    { z: 600, h: 1520 },
-  ];
-
-  const tangents: number[] = [];
-  for (let i = 0; i < pts.length; i++) {
-    if (i === 0) {
-      tangents.push((pts[1].h - pts[0].h) / (pts[1].z - pts[0].z));
-    } else if (i === pts.length - 1) {
-      tangents.push((pts[i].h - pts[i - 1].h) / (pts[i].z - pts[i - 1].z));
-    } else {
-      tangents.push((pts[i + 1].h - pts[i - 1].h) / (pts[i + 1].z - pts[i - 1].z));
-    }
-  }
-
-  function getBaseHeight(z: number): number {
-    if (z <= pts[0].z) return pts[0].h;
-    if (z >= pts[pts.length - 1].z) return pts[pts.length - 1].h;
-    for (let i = 0; i < pts.length - 1; i++) {
-      if (z >= pts[i].z && z <= pts[i + 1].z) {
-        const dz = pts[i + 1].z - pts[i].z;
-        const t = (z - pts[i].z) / dz;
-        return hermite(t, pts[i].h, pts[i + 1].h, tangents[i], tangents[i + 1], dz);
-      }
-    }
-    return 1520;
-  }
-
-  const dropZoneConfigs = DEFAULT_GAME_CONFIG.dropZones;
-
-  // Generate heightfield with bowl contour and natural rollers
-  let minElevation = Infinity;
-  let maxElevation = -Infinity;
-
-  for (let r = 0; r <= segmentsZ; r++) {
-    const z = -length / 2 + (r / segmentsZ) * length;
-    const baseH = getBaseHeight(z);
-
-    // Taper bowl & rollers near summit ridge so maxElevation never exceeds 2182m summit
-    const summitTaper = Math.max(0, Math.min(1, (z - (-length / 2)) / 120));
-
-    for (let c = 0; c <= segmentsX; c++) {
-      const x = -width / 2 + (c / segmentsX) * width;
-      const xNorm = x / (width / 2);
-
-      // Natural bowl: higher ridges on lateral boundaries, tapering at summit ridge
-      const bowl = 18.0 * (xNorm * xNorm) * summitTaper;
-
-      // Natural terrain rollers, damped around drop zone spawn points
-      let rollerWeight = 1.0;
-      for (const dz of dropZoneConfigs) {
-        const d = Math.hypot(x - dz.spawnPosition.x, z - dz.spawnPosition.z);
-        if (d < 25.0) {
-          rollerWeight = Math.min(rollerWeight, d / 25.0);
-        }
-      }
-
-      const rolls =
-        (2.0 * Math.sin((2 * Math.PI * z) / 160) * Math.cos((2 * Math.PI * x) / 110) +
-          1.0 * Math.sin((2 * Math.PI * z) / 60) * Math.cos((2 * Math.PI * x) / 50)) *
-        rollerWeight *
-        summitTaper;
-
-      const h = Math.min(2182.0, baseH + bowl + rolls);
-      heights[r * stride + c] = h;
-
-      if (h < minElevation) minElevation = h;
-      if (h > maxElevation) maxElevation = h;
-    }
-  }
-
-  // Helper to query elevation during obstacle placement
-  function queryHeight(qx: number, qz: number): number {
-    const clampedX = Math.max(-width / 2, Math.min(width / 2, qx));
-    const clampedZ = Math.max(-length / 2, Math.min(length / 2, qz));
-    const u = ((clampedX + width / 2) / width) * segmentsX;
-    const v = ((clampedZ + length / 2) / length) * segmentsZ;
-    const c0 = Math.min(Math.floor(u), segmentsX - 1);
-    const r0 = Math.min(Math.floor(v), segmentsZ - 1);
-    const c1 = c0 + 1;
-    const r1 = r0 + 1;
-    const fx = u - c0;
-    const fz = v - r0;
-    const h00 = heights[r0 * stride + c0];
-    const h10 = heights[r0 * stride + c1];
-    const h01 = heights[r1 * stride + c0];
-    const h11 = heights[r1 * stride + c1];
-    const h0 = h00 * (1 - fx) + h10 * fx;
-    const h1 = h01 * (1 - fx) + h11 * fx;
-    return h0 * (1 - fz) + h1 * fz;
-  }
-
-  // Populate drop zones with exact terrain elevations
-  const dropZones: DropZone[] = dropZoneConfigs.map((dz) => ({
-    ...dz,
-    spawnPosition: {
-      x: dz.spawnPosition.x,
-      y: queryHeight(dz.spawnPosition.x, dz.spawnPosition.z),
-      z: dz.spawnPosition.z,
-    },
-  }));
-
-  // Generate deterministic obstacles respecting 28m clearance and downhill fall-line corridor
-  const rand = createSeededRandom(42);
-  const obstacles: TerrainObstacle[] = [];
-  let attempts = 0;
-
-  while (obstacles.length < 110 && attempts < 2000) {
-    attempts++;
-    const ox = (rand() - 0.5) * (width * 0.88);
-    const oz = -length / 2 + 30 + rand() * (length - 60);
-
-    // Keep minimum 28m clearance around all drop zones AND clear downhill fall-line corridor
-    let safe = true;
-    for (const dz of dropZones) {
-      if (Math.hypot(ox - dz.spawnPosition.x, oz - dz.spawnPosition.z) < 28.0) {
-        safe = false;
-        break;
-      }
-      if (
-        Math.abs(ox - dz.spawnPosition.x) < 18 &&
-        oz >= dz.spawnPosition.z - 10 &&
-        oz <= dz.spawnPosition.z + 100
-      ) {
-        safe = false;
-        break;
-      }
-    }
-
-    // Keep central high-speed ski line less obstructed
-    if (Math.abs(ox) < 10 && rand() > 0.15) {
-      continue;
-    }
-
-    if (!safe) continue;
-
-    const r = rand();
-    let type: 'tree' | 'rock' | 'cliff';
-    let radius: number;
-    let height: number;
-
-    // Below tree line (oz > -280), trees can spawn (65% chance)
-    if (oz > -280 && r < 0.65) {
-      type = 'tree';
-      radius = 1.2;
-      height = 6.0 + rand() * 4.0;
-    } else if (r < 0.86) {
-      type = 'rock';
-      radius = 1.5 + rand() * 0.8;
-      height = 2.0 + rand() * 1.5;
-    } else {
-      type = 'cliff';
-      radius = 3.0 + rand() * 1.5;
-      height = 5.0 + rand() * 3.5;
-    }
-
-    const oy = queryHeight(ox, oz);
-    obstacles.push({
-      id: `${type}_${obstacles.length}`,
-      type,
-      position: { x: ox, y: oy, z: oz },
-      radius,
-      height,
-    });
-  }
-
-  return {
-    mountainId: 'whistler-peak',
-    mountainName: DEFAULT_GAME_CONFIG.mountainName,
-    region: DEFAULT_GAME_CONFIG.region,
-    width,
-    length,
-    segmentsX,
-    segmentsZ,
-    minElevation: Math.round(minElevation),
-    maxElevation: Math.round(maxElevation),
-    heights,
-    obstacles,
-    dropZones,
-    glbLoaded: false,
-    glbFormatVersion: '2.0',
-  };
+/**
+ * DEPRECATED: Bridge for TerrainManager (T3 will migrate to assembleTerrainData).
+ * Throws at runtime to prevent silent synthetic fallback (ADR-0007 Rule 1).
+ * Kept as an export so tsc passes until T3 updates TerrainManager.
+ */
+export function generateWhistlerDEM(
+  _width?: number,
+  _length?: number,
+  _segmentsX?: number,
+  _segmentsZ?: number,
+): TerrainData {
+  throw new Error(
+    '[generateWhistlerDEM] Synthetic DEM removed per ADR-0007. ' +
+    'Use assembleTerrainData(manifest, heights) with committed artifacts instead.',
+  );
 }
 
 export function buildTerrainMeshFromDEM(data: TerrainData): THREE.Mesh {
