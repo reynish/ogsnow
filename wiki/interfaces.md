@@ -401,8 +401,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   dropZones: [
     {
       id: 'summit-express',
-      name: 'Peak Express Summit (2,182m)',
-      elevationMeters: 2182,
+      name: 'Peak Express Summit (~2,152m)',
+      elevationMeters: 2152,
       description: 'Steep alpine bowl dropping directly from the Whistler summit ridge.',
       difficulty: 'Double Black',
       spawnPosition: { x: 0, y: 0, z: -520 },
@@ -410,8 +410,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     },
     {
       id: 'harmony-ridge',
-      name: 'Harmony Ridge Drop (1,940m)',
-      elevationMeters: 1940,
+      name: 'Harmony Ridge Drop (~2,061m)',
+      elevationMeters: 2061,
       description: 'Wide open powder cruisers with natural rollers and tree glades.',
       difficulty: 'Blue',
       spawnPosition: { x: -45, y: 0, z: -260 },
@@ -419,8 +419,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     },
     {
       id: 'glacier-bowl',
-      name: 'Glacier Creek Chute (1,780m)',
-      elevationMeters: 1780,
+      name: 'Glacier Creek Chute (~1,837m)',
+      elevationMeters: 1837,
       description: 'High-speed technical lower mountain run through rock outcrops and pines.',
       difficulty: 'Black',
       spawnPosition: { x: 38, y: 0, z: -40 },
@@ -430,7 +430,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
 };
 ```
 
-> **Iteration 2 note (ADR-0007):** the `dropZones` above are the **Iteration-1 fallback seed**. From `feat/real-terrain-import` onward, `GameApp.init()` replaces `config.dropZones` with the manifest-derived `terrain.terrainData.dropZones` (re-derived from the real DEM), **retaining the exact ids** `summit-express` / `harmony-ridge` / `glacier-bowl` so existing `data-testid` selectors and E2E assertions remain valid. `GameConfig` gains an optional `attribution?: string[]` field for the terrain attribution footer. Physics/audio/camera constants are unchanged.
+> **Iteration 2 note (ADR-0007):** the `dropZones` above are a **pre-initialize fallback placeholder only**. From `feat/real-terrain-import` onward, `GameApp.init()` replaces `config.dropZones` with manifest-derived `terrain.terrainData.dropZones` loaded from `public/assets/terrain/whistler-terrain.json` (ids `summit-express` / `harmony-ridge` / `glacier-bowl` with real elevations ≈2152 / 2061 / 1837 m), so `data-testid` selectors and E2E assertions remain valid. `GameConfig` gains an optional `attribution?: string[]` field for the terrain attribution footer. Physics/audio/camera constants are unchanged.
 
 ---
 
