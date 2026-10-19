@@ -1,8 +1,11 @@
 # ADR-0002: 3D Rendering and Standardized GLB Terrain Pipeline
 
-- **Status:** Accepted
+- **Status:** Accepted (partially superseded by [ADR-0007](./0007-open-map-terrain-import.md))
 - **Date:** 2026-10-18
 - **Iteration:** `feat/v1-core-game`
+
+> [!WARNING]
+> **Superseded clause (Iteration 2):** ADR-0007 supersedes the *synthetic* `generateWhistlerDEM()` heightfield generator in §"Decision.1" and the "external GIS ingestion deferred" note in ADR-0006 §"Decision.3". From `feat/real-terrain-import` onward, the DEM grid comes from committed real-world open-data artifacts (`whistler-dem.bin` + `whistler-terrain.json`) via the two-stage pipeline, and `generateWhistlerDEM()` is removed or reduced to a pure `TerrainData` assembler. **All other rules below remain in force**: the `TerrainData`/GLB serialization contract, `flatShading: true`, `terrainMetadata` embedding in glTF `extras`, bilinear height/normal queries, and drop-zone clearance requirements are retained verbatim and re-stated in ADR-0007.
 
 ## Context
 
