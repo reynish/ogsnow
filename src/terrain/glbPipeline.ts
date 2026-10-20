@@ -69,86 +69,143 @@ export function buildTerrainMeshFromDEM(data: TerrainData): THREE.Mesh {
   const { width, length, segmentsX, segmentsZ, heights } = data;
   const geometry = new THREE.BufferGeometry();
   const stride = segmentsX + 1;
-  const numVertices = (segmentsZ + 1) * stride;
+
+  const numTriangles = segmentsZ * segmentsX * 2;
+  const numVertices = numTriangles * 3;
 
   const positions = new Float32Array(numVertices * 3);
   const colors = new Float32Array(numVertices * 3);
 
-  let pIdx = 0;
-  for (let r = 0; r <= segmentsZ; r++) {
-    const z = -length / 2 + (r / segmentsZ) * length;
-    for (let c = 0; c <= segmentsX; c++) {
-      const x = -width / 2 + (c / segmentsX) * width;
-      const y = heights[r * stride + c];
-      positions[pIdx] = x;
-      positions[pIdx + 1] = y;
-      positions[pIdx + 2] = z;
-      pIdx += 3;
+  // Sunlight direction normalized: sun position (120, 280, 140)
+  const sunDirX = 0.362;
+  const sunDirY = 0.845;
+  const sunDirZ = 0.422;
+
+  let vIdx = 0;
+  let triIdx = 0;
+
+  for (let r = 0; r < segmentsZ; r++) {
+    const z0 = -length / 2 + (r / segmentsZ) * length;
+    const z1 = -length / 2 + ((r + 1) / segmentsZ) * length;
+
+    for (let c = 0; c < segmentsX; c++) {
+      const x0 = -width / 2 + (c / segmentsX) * width;
+      const x1 = -width / 2 + ((c + 1) / segmentsX) * width;
+
+      const y00 = heights[r * stride + c];
+      const y10 = heights[r * stride + c + 1];
+      const y01 = heights[(r + 1) * stride + c];
+      const y11 = heights[(r + 1) * stride + c + 1];
+
+      // Local 3x3 window average height for curvature/bump deviation
+      let sumH = 0;
+      let countH = 0;
+      for (let dr = -1; dr <= 2; dr++) {
+        for (let dc = -1; dc <= 2; dc++) {
+          const rr = r + dr;
+          const cc = c + dc;
+          if (rr >= 0 && rr <= segmentsZ && cc >= 0 && cc <= segmentsX) {
+            sumH += heights[rr * stride + cc];
+            countH++;
+          }
+        }
+      }
+      const avgLocalH = countH > 0 ? sumH / countH : (y00 + y10 + y01 + y11) / 4;
+
+      const tris = [
+        // Triangle 1: (v00, v01, v10)
+        [x0, y00, z0,  x0, y01, z1,  x1, y10, z0],
+        // Triangle 2: (v01, v11, v10)
+        [x0, y01, z1,  x1, y11, z1,  x1, y10, z0],
+      ];
+
+      for (const t of tris) {
+        const [p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y, p2z] = t;
+
+        // Compute face normal vector
+        const ax = p1x - p0x, ay = p1y - p0y, az = p1z - p0z;
+        const bx = p2x - p0x, by = p2y - p0y, bz = p2z - p0z;
+
+        let nx = ay * bz - az * by;
+        let ny = az * bx - ax * bz;
+        let nz = ax * by - ay * bx;
+        const len = Math.hypot(nx, ny, nz) || 1;
+        nx /= len; ny /= len; nz /= len;
+
+        const yCent = (p0y + p1y + p2y) / 3;
+        const heightDev = yCent - avgLocalH;
+        const sunDot = nx * sunDirX + ny * sunDirY + nz * sunDirZ;
+
+        // Subtle deterministic facet hash variation to accentuate polygon definition
+        const hash = ((triIdx * 9301 + 49297) % 233280) / 233280;
+        const facetVar = (hash - 0.5) * 0.05;
+
+        let cr: number, cg: number, cb: number;
+
+        if (ny < 0.62) {
+          // Dark alpine rock / granite cliff
+          cr = 0.30 + facetVar;
+          cg = 0.32 + facetVar;
+          cb = 0.36 + facetVar;
+        } else if (ny < 0.76) {
+          // Steep transition / windswept ice
+          const k = (ny - 0.62) / 0.14;
+          cr = 0.50 + 0.30 * k + facetVar;
+          cg = 0.58 + 0.28 * k + facetVar;
+          cb = 0.70 + 0.22 * k + facetVar;
+        } else {
+          // Snowfield facet
+          let baseR = 0.80;
+          let baseG = 0.84;
+          let baseB = 0.90;
+
+          if (yCent < 1650) {
+            baseR = 0.76; baseG = 0.80; baseB = 0.85;
+          } else if (yCent > 1950) {
+            baseR = 0.83; baseG = 0.88; baseB = 0.95;
+          }
+
+          const aspectShade = (sunDot - 0.7) * 0.32;
+          const devShade = Math.max(-0.20, Math.min(0.18, heightDev * 0.12));
+
+          cr = baseR + aspectShade + devShade + facetVar;
+          cg = baseG + aspectShade + devShade + facetVar;
+          cb = baseB + aspectShade + (devShade < 0 ? devShade * 0.3 : devShade) + facetVar;
+
+          // Clamp RGB
+          cr = Math.max(0.55, Math.min(0.98, cr));
+          cg = Math.max(0.60, Math.min(0.98, cg));
+          cb = Math.max(0.68, Math.min(1.00, cb));
+        }
+
+        positions[vIdx * 3]     = p0x; positions[vIdx * 3 + 1] = p0y; positions[vIdx * 3 + 2] = p0z;
+        positions[(vIdx+1) * 3] = p1x; positions[(vIdx+1) * 3 + 1] = p1y; positions[(vIdx+1) * 3 + 2] = p1z;
+        positions[(vIdx+2) * 3] = p2x; positions[(vIdx+2) * 3 + 1] = p2y; positions[(vIdx+2) * 3 + 2] = p2z;
+
+        colors[vIdx * 3]     = cr; colors[vIdx * 3 + 1] = cg; colors[vIdx * 3 + 2] = cb;
+        colors[(vIdx+1) * 3] = cr; colors[(vIdx+1) * 3 + 1] = cg; colors[(vIdx+1) * 3 + 2] = cb;
+        colors[(vIdx+2) * 3] = cr; colors[(vIdx+2) * 3 + 1] = cg; colors[(vIdx+2) * 3 + 2] = cb;
+
+        vIdx += 3;
+        triIdx++;
+      }
     }
   }
 
-  const indices: number[] = [];
-  for (let r = 0; r < segmentsZ; r++) {
-    for (let c = 0; c < segmentsX; c++) {
-      const i00 = r * stride + c;
-      const i10 = r * stride + c + 1;
-      const i01 = (r + 1) * stride + c;
-      const i11 = (r + 1) * stride + c + 1;
-
-      // Triangle 1
-      indices.push(i00, i01, i10);
-      // Triangle 2
-      indices.push(i01, i11, i10);
-    }
+  const indices = new Uint32Array(numVertices);
+  for (let i = 0; i < numVertices; i++) {
+    indices[i] = i;
   }
 
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-
-  // Low-poly vertex coloring: snow whites, icy blues, steep rock grays
-  const normals = geometry.attributes.normal.array;
-  for (let i = 0; i < numVertices; i++) {
-    const y = positions[i * 3 + 1];
-    const ny = normals[i * 3 + 1];
-
-    let cr = 0.96;
-    let cg = 0.98;
-    let cb = 1.0;
-
-    if (ny < 0.65) {
-      // Steep granite cliff
-      cr = 0.35;
-      cg = 0.36;
-      cb = 0.40;
-    } else if (ny < 0.78) {
-      // Windswept alpine ice / blue glacier snow
-      cr = 0.75;
-      cg = 0.86;
-      cb = 0.95;
-    } else if (y < 1650) {
-      // Lower runout cruiser snow
-      cr = 0.89;
-      cg = 0.92;
-      cb = 0.94;
-    } else if (y < 1920) {
-      // Mid-mountain packed snow
-      cr = 0.93;
-      cg = 0.95;
-      cb = 0.98;
-    }
-
-    colors[i * 3] = cr;
-    colors[i * 3 + 1] = cg;
-    colors[i * 3 + 2] = cb;
-  }
-
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeVertexNormals();
 
   const material = new THREE.MeshStandardMaterial({
     vertexColors: true,
     flatShading: true,
-    roughness: 0.9,
+    roughness: 0.85,
     metalness: 0.05,
   });
 

@@ -49,11 +49,11 @@ export class GameApp {
     this.scene.fog = new THREE.FogExp2(0x8cb8de, 0.0022);
 
     // Directional Sunlight & Sky/Ground Ambient Lighting
-    const ambientLight = new THREE.HemisphereLight(0xffffff, 0x446688, 0.85);
+    const ambientLight = new THREE.HemisphereLight(0xdbeeff, 0x557799, 0.55);
     ambientLight.name = 'alpine_ambient_light';
     this.scene.add(ambientLight);
 
-    const sunLight = new THREE.DirectionalLight(0xfffaed, 1.25);
+    const sunLight = new THREE.DirectionalLight(0xfffaed, 1.30);
     sunLight.name = 'alpine_sun_light';
     sunLight.position.set(120, 280, 140);
     this.scene.add(sunLight);
