@@ -17,6 +17,19 @@ export class SnowboardCharacter {
   public readonly boardMesh: THREE.Mesh;
   public readonly riderGroup: THREE.Group;
 
+  // Animatable rider meshes (promoted from constructor locals for update())
+  private torso: THREE.Mesh;
+  private hips: THREE.Mesh;
+  private frontLeg: THREE.Mesh;
+  private backLeg: THREE.Mesh;
+  private frontArm: THREE.Mesh;
+  private backArm: THREE.Mesh;
+
+  // Landing squash state
+  private wasAirborne: boolean = false;
+  private landingSquashTimer: number = 0;
+  private readonly landingSquashDuration: number = 0.15;
+
   private sprayParticles: Particle[] = [];
   private sprayGeometry: THREE.BufferGeometry;
   private sprayPoints: THREE.Points;
@@ -107,41 +120,41 @@ export class SnowboardCharacter {
 
     // Legs / Snow pants (bent knees stance)
     const legGeo = new THREE.BoxGeometry(0.18, 0.45, 0.2);
-    const frontLeg = new THREE.Mesh(legGeo, pantsMat);
-    frontLeg.position.set(0, 0.35, 0.3);
-    frontLeg.rotation.set(0.2, 0.35, -0.15);
-    this.riderGroup.add(frontLeg);
+    this.frontLeg = new THREE.Mesh(legGeo, pantsMat);
+    this.frontLeg.position.set(0, 0.35, 0.3);
+    this.frontLeg.rotation.set(0.2, 0.35, -0.15);
+    this.riderGroup.add(this.frontLeg);
 
-    const backLeg = new THREE.Mesh(legGeo, pantsMat);
-    backLeg.position.set(0, 0.35, -0.3);
-    backLeg.rotation.set(-0.2, 0.15, -0.15);
-    this.riderGroup.add(backLeg);
+    this.backLeg = new THREE.Mesh(legGeo, pantsMat);
+    this.backLeg.position.set(0, 0.35, -0.3);
+    this.backLeg.rotation.set(-0.2, 0.15, -0.15);
+    this.riderGroup.add(this.backLeg);
 
     // Pelvis / Hips
     const hipsGeo = new THREE.BoxGeometry(0.36, 0.22, 0.48);
-    const hips = new THREE.Mesh(hipsGeo, pantsMat);
-    hips.position.set(0, 0.58, 0.0);
-    hips.rotation.y = 0.25;
-    this.riderGroup.add(hips);
+    this.hips = new THREE.Mesh(hipsGeo, pantsMat);
+    this.hips.position.set(0, 0.58, 0.0);
+    this.hips.rotation.y = 0.25;
+    this.riderGroup.add(this.hips);
 
     // Torso / Jacket
     const torsoGeo = new THREE.BoxGeometry(0.38, 0.48, 0.44);
-    const torso = new THREE.Mesh(torsoGeo, jacketMat);
-    torso.position.set(0, 0.88, 0.0);
-    torso.rotation.y = 0.3;
-    this.riderGroup.add(torso);
+    this.torso = new THREE.Mesh(torsoGeo, jacketMat);
+    this.torso.position.set(0, 0.88, 0.0);
+    this.torso.rotation.y = 0.3;
+    this.riderGroup.add(this.torso);
 
     // Arms & Mittens (outstretched for snowboard balance)
     const armGeo = new THREE.BoxGeometry(0.12, 0.38, 0.12);
-    const frontArm = new THREE.Mesh(armGeo, jacketMat);
-    frontArm.position.set(0.18, 0.88, 0.32);
-    frontArm.rotation.set(0.4, 0, -0.5);
-    this.riderGroup.add(frontArm);
+    this.frontArm = new THREE.Mesh(armGeo, jacketMat);
+    this.frontArm.position.set(0.18, 0.88, 0.32);
+    this.frontArm.rotation.set(0.4, 0, -0.5);
+    this.riderGroup.add(this.frontArm);
 
-    const backArm = new THREE.Mesh(armGeo, jacketMat);
-    backArm.position.set(-0.18, 0.88, -0.32);
-    backArm.rotation.set(-0.4, 0, 0.5);
-    this.riderGroup.add(backArm);
+    this.backArm = new THREE.Mesh(armGeo, jacketMat);
+    this.backArm.position.set(-0.18, 0.88, -0.32);
+    this.backArm.rotation.set(-0.4, 0, 0.5);
+    this.riderGroup.add(this.backArm);
 
     // Head
     const headGeo = new THREE.BoxGeometry(0.22, 0.24, 0.22);
@@ -201,6 +214,8 @@ export class SnowboardCharacter {
 
   public update(state: PlayerState, dtSeconds: number): void {
     const dt = Math.min(Math.max(0, dtSeconds), 0.1);
+    // Smoothing factor for pose interpolation (frame-rate independent-ish)
+    const k = Math.min(1, dt * 12);
 
     // 1. World Position
     this.group.position.set(state.position.x, state.position.y, state.position.z);
@@ -211,9 +226,11 @@ export class SnowboardCharacter {
     this.group.rotation.x = state.pitchRad;
     this.group.rotation.z = -state.rollRad;
 
-    // 3. Rider Dynamics (Carve crouch, jump tuck, wipeout tumble)
+    // 3. Rider Dynamics (Carve crouch, jump charge crouch, spin, grab, wipeout tumble)
     if (state.isCrashed) {
-      // PS1-style wipeout tumble
+      // PS1-style wipeout tumble (crash takes precedence)
+      this.landingSquashTimer = 0;
+      this.riderGroup.scale.y = 1.0;
       this.riderGroup.position.set(0, 0.2, 0);
       this.riderGroup.rotation.z = Math.PI * 0.45;
       this.riderGroup.rotation.x = 0.3;
@@ -225,9 +242,79 @@ export class SnowboardCharacter {
       const carveLean = state.rollRad * 0.4 + state.carveIntensity * 0.15;
       this.riderGroup.rotation.z = carveLean;
       this.riderGroup.rotation.x = 0;
+
+      // Air spin: visually yaw the rider independently of the board heading.
+      // When grounded, ease the spin back to the neutral (0) yaw.
+      if (state.isGrounded) {
+        this.riderGroup.rotation.y += (0 - this.riderGroup.rotation.y) * k;
+      } else {
+        this.riderGroup.rotation.y = state.spinRad;
+      }
+
+      // Crouch / wind-up pose from jumpCharge (0..1). Targets match the
+      // neutral stance exactly when jumpCharge === 0.
+      const jumpCharge = Math.min(1, Math.max(0, state.jumpCharge));
+      const hipsTargetY = 0.58 - jumpCharge * 0.15;
+      const torsoTargetY = 0.88 - jumpCharge * 0.2;
+      const torsoTargetRotX = jumpCharge * 0.3;
+      const frontLegTargetX = 0.2 + jumpCharge * 0.25;
+      const backLegTargetX = -0.2 - jumpCharge * 0.2;
+      const boardTargetScaleY = 1.0 + jumpCharge * 0.1;
+
+      this.hips.position.y += (hipsTargetY - this.hips.position.y) * k;
+      this.torso.position.y += (torsoTargetY - this.torso.position.y) * k;
+      this.torso.rotation.x += (torsoTargetRotX - this.torso.rotation.x) * k;
+      this.frontLeg.rotation.x += (frontLegTargetX - this.frontLeg.rotation.x) * k;
+      this.backLeg.rotation.x += (backLegTargetX - this.backLeg.rotation.x) * k;
+      this.boardMesh.scale.y += (boardTargetScaleY - this.boardMesh.scale.y) * k;
+
+      // Grab poses while airborne; neutral outstretched pose on the ground.
+      let frontArmTargetX = 0.4;
+      let frontArmTargetZ = -0.5;
+      let backArmTargetX = -0.4;
+      let backArmTargetZ = 0.5;
+
+      if (!state.isGrounded) {
+        if (state.activeGrab === 'A') {
+          // indy/method: reach front arm toward the board nose
+          frontArmTargetX = 0.8;
+          frontArmTargetZ = -0.6;
+        } else if (state.activeGrab === 'B') {
+          // melon/tail: reach back arm toward the board tail
+          backArmTargetX = -0.9;
+          backArmTargetZ = 0.7;
+        }
+      }
+
+      this.frontArm.rotation.x += (frontArmTargetX - this.frontArm.rotation.x) * k;
+      this.frontArm.rotation.z += (frontArmTargetZ - this.frontArm.rotation.z) * k;
+      this.backArm.rotation.x += (backArmTargetX - this.backArm.rotation.x) * k;
+      this.backArm.rotation.z += (backArmTargetZ - this.backArm.rotation.z) * k;
     }
 
-    // 4. Update Snow Spray Particles
+    // 5. Landing squash on a clean touchdown
+    const airborneNow = !state.isGrounded;
+    if (state.isGrounded && this.wasAirborne && !state.isCrashed) {
+      this.landingSquashTimer = this.landingSquashDuration;
+    }
+    this.wasAirborne = airborneNow;
+
+    if (!state.isCrashed) {
+      if (this.landingSquashTimer > 0) {
+        const progress = 1.0 - this.landingSquashTimer / this.landingSquashDuration;
+        const squashY = 1.0 - 0.3 * Math.sin(progress * Math.PI); // peak squash at midpoint, min ~0.7
+        this.riderGroup.scale.y = squashY;
+        this.landingSquashTimer -= dt;
+        if (this.landingSquashTimer <= 0) {
+          this.landingSquashTimer = 0;
+          this.riderGroup.scale.y = 1.0;
+        }
+      } else {
+        this.riderGroup.scale.y = 1.0;
+      }
+    }
+
+    // 6. Update Snow Spray Particles
     this.updateParticles(state, dt);
   }
 

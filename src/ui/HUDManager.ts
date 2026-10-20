@@ -25,6 +25,7 @@ export class HUDManager {
   private carveBannerEl!: HTMLElement;
   private carveMeterFillEl!: HTMLElement;
   private errorBannerEl?: HTMLElement;
+  private controlsLegendEl?: HTMLElement;
 
   private currentMode: GameMode = 'menu';
   private dropZonesEnabled: boolean = false;
@@ -61,6 +62,20 @@ export class HUDManager {
     } else {
       this.mainMenuEl.classList.add('hidden');
       this.hudOverlayEl.classList.remove('hidden');
+    }
+    this.updateControlsLegendVisibility();
+  }
+
+  /**
+   * T4: The controls legend is only shown while actively riding.
+   * It stays hidden in menu, paused, and error modes.
+   */
+  private updateControlsLegendVisibility(): void {
+    if (!this.controlsLegendEl) return;
+    if (this.currentMode === 'riding') {
+      this.controlsLegendEl.classList.remove('hidden');
+    } else {
+      this.controlsLegendEl.classList.add('hidden');
     }
   }
 
@@ -99,6 +114,9 @@ export class HUDManager {
         }
       }
     }
+
+    // T4: Legend is riding-only; hidden in menu / paused / error
+    this.updateControlsLegendVisibility();
   }
 
   public update(player: PlayerState, audio: AudioState): void {
@@ -289,7 +307,7 @@ export class HUDManager {
     footerEl.className = 'menu-footer';
     footerEl.innerHTML = `
       <div class="controls-hint">
-        CONTROLS: [A/D] STEER • [S] CARVE / BRAKE • [W] TUCK ACCEL • [SPACE] JUMP • [R] RESET
+        CONTROLS: [A/D] STEER • [S] CARVE / BRAKE • [W] TUCK ACCEL • [SPACE] HOLD TO CHARGE JUMP • [R] RESET
       </div>
       <div class="soundtrack-info">170 BPM AMEN JUNGLE SOUNDTRACK</div>
     `;
@@ -362,6 +380,43 @@ export class HUDManager {
     topBar.appendChild(stemsContainer);
     topBar.appendChild(actionButtons);
     this.hudOverlayEl.appendChild(topBar);
+
+    // ==========================================
+    // T4: Persistent Controls Legend (riding mode only)
+    // Non-interactive overlay: pointer-events:none, tabindex=-1, aria-hidden.
+    // NOTE: no score/points/combo/trick-name display is added (ADR-0008 rule 8).
+    // ==========================================
+    this.controlsLegendEl = document.createElement('div');
+    this.controlsLegendEl.id = 'controls-legend';
+    this.controlsLegendEl.className = 'controls-legend retro-shadow hidden';
+    this.controlsLegendEl.setAttribute('data-testid', 'controls-legend');
+    this.controlsLegendEl.setAttribute('tabindex', '-1');
+    this.controlsLegendEl.setAttribute('aria-hidden', 'true');
+
+    const legendTitleEl = document.createElement('div');
+    legendTitleEl.className = 'legend-title';
+    legendTitleEl.textContent = 'CONTROLS';
+    this.controlsLegendEl.appendChild(legendTitleEl);
+
+    const legendRows: Array<[string, string]> = [
+      ['SPACE', 'Hold to charge jump, release to launch'],
+      ['A / D', 'Ground: steer • Air: spin frontside / backside'],
+      ['W', 'Ground: tuck • Air: grab A (Indy / Method)'],
+      ['S', 'Ground: carve • Air: grab B (Melon / Tail)'],
+      ['R', 'Reset to drop zone'],
+    ];
+    for (const [key, description] of legendRows) {
+      const rowEl = document.createElement('div');
+      rowEl.className = 'legend-row';
+      const keyEl = document.createElement('span');
+      keyEl.className = 'key';
+      keyEl.textContent = key;
+      rowEl.appendChild(keyEl);
+      rowEl.appendChild(document.createTextNode(` ${description}`));
+      this.controlsLegendEl.appendChild(rowEl);
+    }
+
+    this.hudOverlayEl.appendChild(this.controlsLegendEl);
 
     // Center Banners
     const centerBannerArea = document.createElement('div');

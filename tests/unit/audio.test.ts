@@ -21,6 +21,9 @@ function createMockPlayerState(overrides: Partial<PlayerState> = {}): PlayerStat
     altitudeMeters: 2000,
     distanceTraveledMeters: 50,
     activeDropZoneId: 'summit-express',
+    jumpCharge: 0,
+    spinRad: 0,
+    activeGrab: 'none',
     ...overrides,
   };
 }
