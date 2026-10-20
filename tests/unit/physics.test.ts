@@ -28,7 +28,7 @@ describe('Physics, Character & Camera (Task 2)', () => {
     steer: 0,
     carve: 0,
     tuck: false,
-    jump: false,
+    jumpHeld: false,
     reset: false,
   };
 
@@ -206,40 +206,301 @@ describe('Physics, Character & Camera (Task 2)', () => {
     });
   });
 
-  describe('Jumping & Airtime Tracking', () => {
-    it('imparts upward jump impulse, sets isGrounded to false, and tracks airtimeSeconds until landing', () => {
+  describe('Charge-and-Release Jump (ADR-0008)', () => {
+    it('accumulates jumpCharge 0.0 -> 1.0 over jumpChargeMaxSeconds while jumpHeld + grounded, staying grounded while holding', () => {
       const dropZone = terrain.terrainData.dropZones[0];
       physics.resetAtDropZone(dropZone);
 
-      // Build slight speed
-      for (let i = 0; i < 10; i++) {
-        physics.step(0.05, neutralInput);
+      const dt = 0.05;
+      const steps = Math.ceil(DEFAULT_GAME_CONFIG.jumpChargeMaxSeconds / dt);
+      expect(steps).toBeGreaterThan(1);
+
+      for (let i = 0; i < steps; i++) {
+        physics.step(dt, { ...neutralInput, jumpHeld: true });
+        // Holding a charge must NOT launch the rider; release is required (ADR-0008 rule 1).
+        expect(physics.getState().isGrounded).toBe(true);
       }
+
+      const state = physics.getState();
+      expect(state.jumpCharge).toBeCloseTo(1.0, 1);
+      expect(state.isGrounded).toBe(true);
+    });
+
+    it('launches on release with jumpMinImpulse on a brief tap (one hold step then release)', () => {
+      const dropZone = terrain.terrainData.dropZones[0];
+      physics.resetAtDropZone(dropZone);
+
+      // Hold for a single short frame, then release.
+      physics.step(0.016, { ...neutralInput, jumpHeld: true });
+      expect(physics.getState().jumpCharge).toBeLessThan(0.1);
       expect(physics.getState().isGrounded).toBe(true);
 
-      // Trigger jump
-      const jumpInput: PlayerInput = { ...neutralInput, jump: true };
-      const afterJump = physics.step(0.05, jumpInput);
+      physics.step(0.016, { ...neutralInput, jumpHeld: false });
+      const launch = physics.getState();
 
-      expect(afterJump.isGrounded).toBe(false);
-      expect(afterJump.airtimeSeconds).toBeGreaterThan(0);
+      expect(launch.isGrounded).toBe(false);
+      expect(launch.jumpCharge).toBe(0);
+      // Absolute tolerance of 0.5 m/s (toBeCloseTo's 2nd arg is decimal digits, not tolerance).
+      expect(Math.abs(launch.velocity.y - DEFAULT_GAME_CONFIG.jumpMinImpulse)).toBeLessThan(0.5);
+    });
 
-      // Let rider remain in air for several steps
-      let maxAirtime = 0;
-      let landed = false;
-      for (let i = 0; i < 40; i++) {
-        const s = physics.step(0.05, neutralInput);
-        if (!s.isGrounded) {
-          maxAirtime = Math.max(maxAirtime, s.airtimeSeconds);
-        } else {
-          landed = true;
-          expect(s.airtimeSeconds).toBe(0); // Reset on landing
-          break;
+    it('launches on release with jumpMaxImpulse on a full charge and achieves 1.8-2.4s airtime', () => {
+      const dropZone = terrain.terrainData.dropZones[0];
+      physics.resetAtDropZone(dropZone);
+
+      const dt = 0.05;
+      const steps = Math.ceil(DEFAULT_GAME_CONFIG.jumpChargeMaxSeconds / dt);
+      for (let i = 0; i < steps; i++) {
+        physics.step(dt, { ...neutralInput, jumpHeld: true });
+      }
+      expect(physics.getState().jumpCharge).toBeCloseTo(1.0, 1);
+      expect(physics.getState().isGrounded).toBe(true);
+
+      // Release with a short step so gravity has minimal time to reduce vy before sampling.
+      physics.step(0.016, { ...neutralInput, jumpHeld: false });
+      const launch = physics.getState();
+      expect(launch.isGrounded).toBe(false);
+      // Absolute tolerance of 0.5 m/s (toBeCloseTo's 2nd arg is decimal digits, not tolerance).
+      expect(Math.abs(launch.velocity.y - DEFAULT_GAME_CONFIG.jumpMaxImpulse)).toBeLessThan(0.5);
+
+      let airtime = 0;
+      while (!physics.getState().isGrounded && airtime < 5.0) {
+        physics.step(dt, neutralInput);
+        airtime += dt;
+      }
+
+      // README design band is ~1.8-2.2s; allow a small slope-driven margin up to 2.4s.
+      expect(airtime).toBeGreaterThanOrEqual(1.8);
+      expect(airtime).toBeLessThanOrEqual(2.4);
+    });
+
+    it('yields a longer airtime for a full charge than for a tap', () => {
+      const dropZone = terrain.terrainData.dropZones[0];
+      const dt = 0.05;
+
+      // Tap airtime
+      physics.resetAtDropZone(dropZone);
+      physics.step(0.016, { ...neutralInput, jumpHeld: true });
+      physics.step(0.016, { ...neutralInput, jumpHeld: false });
+      let tapAirtime = 0;
+      while (!physics.getState().isGrounded && tapAirtime < 5.0) {
+        physics.step(dt, neutralInput);
+        tapAirtime += dt;
+      }
+
+      // Full-charge airtime
+      physics.resetAtDropZone(dropZone);
+      const steps = Math.ceil(DEFAULT_GAME_CONFIG.jumpChargeMaxSeconds / dt);
+      for (let i = 0; i < steps; i++) {
+        physics.step(dt, { ...neutralInput, jumpHeld: true });
+      }
+      physics.step(0.016, { ...neutralInput, jumpHeld: false });
+      let fullAirtime = 0;
+      while (!physics.getState().isGrounded && fullAirtime < 5.0) {
+        physics.step(dt, neutralInput);
+        fullAirtime += dt;
+      }
+
+      expect(fullAirtime).toBeGreaterThan(tapAirtime);
+    });
+
+    it('applies a crouch steering penalty while jumpCharge > 0 (crouch heading change < 0.6x standing)', () => {
+      const dropZone = terrain.terrainData.dropZones[0];
+
+      // Standing steering over a fixed 0.1s window
+      physics.resetAtDropZone(dropZone);
+      const standingStart = physics.getState().headingRad;
+      for (let i = 0; i < 2; i++) {
+        physics.step(0.05, { ...neutralInput, steer: 1.0 });
+      }
+      const standingChange = Math.abs(physics.getState().headingRad - standingStart);
+      expect(standingChange).toBeGreaterThan(0.1);
+
+      // Crouched/charging steering over the identical 0.1s window
+      physics.resetAtDropZone(dropZone);
+      const crouchStart = physics.getState().headingRad;
+      for (let i = 0; i < 2; i++) {
+        physics.step(0.05, { ...neutralInput, steer: 1.0, jumpHeld: true });
+      }
+      const crouchChange = Math.abs(physics.getState().headingRad - crouchStart);
+
+      // ADR-0008 rule 2: crouch authority ~0.4x; assert clearly below 0.6x.
+      expect(crouchChange).toBeLessThan(standingChange * 0.6);
+      expect(crouchChange).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Air Control & Spin (ADR-0008)', () => {
+    it('accumulates spinRad while airborne and steering at ~spinRateRadPerSec', () => {
+      const dropZone = terrain.terrainData.dropZones[0];
+      physics.resetAtDropZone(dropZone);
+
+      // Full charge so the rider stays airborne for the whole 1.0s spin window.
+      const steps = Math.ceil(DEFAULT_GAME_CONFIG.jumpChargeMaxSeconds / 0.05);
+      for (let i = 0; i < steps; i++) {
+        physics.step(0.05, { ...neutralInput, jumpHeld: true });
+      }
+      physics.step(0.016, { ...neutralInput, jumpHeld: false });
+      expect(physics.getState().isGrounded).toBe(false);
+
+      const spinInput: PlayerInput = { ...neutralInput, steer: 1.0 };
+      for (let i = 0; i < 20; i++) {
+        physics.step(0.05, spinInput);
+      }
+
+      const state = physics.getState();
+      expect(state.isGrounded).toBe(false);
+      // ~3.0 rad/s * ~1.0s. Allow a small integration margin.
+      expect(state.spinRad).toBeGreaterThan(2.5);
+      expect(state.spinRad).toBeLessThan(3.5);
+    });
+
+    it('changes airborne heading but less than the grounded steering rate over the same window', () => {
+      const dropZone = terrain.terrainData.dropZones[0];
+
+      // Grounded steering over 0.2s
+      physics.resetAtDropZone(dropZone);
+      const groundStart = physics.getState().headingRad;
+      for (let i = 0; i < 4; i++) {
+        physics.step(0.05, { ...neutralInput, steer: 1.0 });
+      }
+      const groundChange = Math.abs(physics.getState().headingRad - groundStart);
+
+      // Airborne steering over 0.2s
+      physics.resetAtDropZone(dropZone);
+      const chargeSteps = Math.ceil(DEFAULT_GAME_CONFIG.jumpChargeMaxSeconds / 0.05);
+      for (let i = 0; i < chargeSteps; i++) {
+        physics.step(0.05, { ...neutralInput, jumpHeld: true });
+      }
+      physics.step(0.016, { ...neutralInput, jumpHeld: false });
+      const airStart = physics.getState().headingRad;
+      for (let i = 0; i < 4; i++) {
+        physics.step(0.05, { ...neutralInput, steer: 1.0 });
+      }
+      const airChange = Math.abs(physics.getState().headingRad - airStart);
+
+      // ADR-0008 rule 4: limited air steering (~0.35x ground rate).
+      expect(airChange).toBeGreaterThan(0);
+      expect(airChange).toBeLessThan(groundChange);
+    });
+
+    it('sets activeGrab = A on tuck while airborne and releases to none (no latching)', () => {
+      const dropZone = terrain.terrainData.dropZones[0];
+      physics.resetAtDropZone(dropZone);
+
+      const chargeSteps = Math.ceil(DEFAULT_GAME_CONFIG.jumpChargeMaxSeconds / 0.05);
+      for (let i = 0; i < chargeSteps; i++) {
+        physics.step(0.05, { ...neutralInput, jumpHeld: true });
+      }
+      physics.step(0.016, { ...neutralInput, jumpHeld: false });
+      expect(physics.getState().isGrounded).toBe(false);
+
+      physics.step(0.05, { ...neutralInput, tuck: true });
+      expect(physics.getState().activeGrab).toBe('A');
+
+      physics.step(0.05, neutralInput);
+      expect(physics.getState().activeGrab).toBe('none');
+    });
+
+    it('sets activeGrab = B on carve while airborne and releases to none (no latching)', () => {
+      const dropZone = terrain.terrainData.dropZones[0];
+      physics.resetAtDropZone(dropZone);
+
+      const chargeSteps = Math.ceil(DEFAULT_GAME_CONFIG.jumpChargeMaxSeconds / 0.05);
+      for (let i = 0; i < chargeSteps; i++) {
+        physics.step(0.05, { ...neutralInput, jumpHeld: true });
+      }
+      physics.step(0.016, { ...neutralInput, jumpHeld: false });
+      expect(physics.getState().isGrounded).toBe(false);
+
+      physics.step(0.05, { ...neutralInput, carve: 1.0 });
+      expect(physics.getState().activeGrab).toBe('B');
+
+      physics.step(0.05, neutralInput);
+      expect(physics.getState().activeGrab).toBe('none');
+    });
+  });
+
+  describe('Trick Landing Evaluation (ADR-0008)', () => {
+    /** Full-charge launch, returning once the rider is airborne with trick state initialised. */
+    function launchFullCharge(): void {
+      physics.resetAtDropZone(terrain.terrainData.dropZones[0]);
+      const chargeSteps = Math.ceil(DEFAULT_GAME_CONFIG.jumpChargeMaxSeconds / 0.05);
+      for (let i = 0; i < chargeSteps; i++) {
+        physics.step(0.05, { ...neutralInput, jumpHeld: true });
+      }
+      physics.step(0.016, { ...neutralInput, jumpHeld: false });
+      expect(physics.getState().isGrounded).toBe(false);
+    }
+
+    it('crashes when landing mid-rotation (spinRad = pi/2, outside tolerance)', () => {
+      launchFullCharge();
+
+      // Deterministically place the rider at 90 degrees of rotation mid-air.
+      (physics as any).state.spinRad = Math.PI / 2;
+
+      let guard = 0;
+      while (!physics.getState().isGrounded && guard++ < 200) {
+        physics.step(0.05, neutralInput);
+      }
+
+      const landState = physics.getState();
+      expect(landState.isGrounded).toBe(true);
+      expect(landState.isCrashed).toBe(true);
+      expect(landState.spinRad).toBe(0);
+    });
+
+    it('does not crash and resets spinRad when landing aligned (spinRad = pi)', () => {
+      launchFullCharge();
+
+      // A 180-degree (pi) rotation is a valid milestone landing.
+      (physics as any).state.spinRad = Math.PI;
+
+      let guard = 0;
+      while (!physics.getState().isGrounded && guard++ < 200) {
+        physics.step(0.05, neutralInput);
+      }
+
+      const landState = physics.getState();
+      expect(landState.isGrounded).toBe(true);
+      expect(landState.isCrashed).toBe(false);
+      expect(landState.spinRad).toBe(0);
+      expect(landState.activeGrab).toBe('none');
+    });
+
+    it('crashes when landing while still holding a grab, even if rotation is aligned', () => {
+      launchFullCharge();
+
+      // Hold grab A all the way through touchdown.
+      const grabInput: PlayerInput = { ...neutralInput, tuck: true };
+      let sawGrab = false;
+      let guard = 0;
+      while (!physics.getState().isGrounded && guard++ < 200) {
+        physics.step(0.05, grabInput);
+        if (physics.getState().activeGrab === 'A') {
+          sawGrab = true;
         }
       }
 
-      expect(maxAirtime).toBeGreaterThan(0.1);
-      expect(landed).toBe(true);
+      expect(sawGrab).toBe(true);
+      const landState = physics.getState();
+      expect(landState.isGrounded).toBe(true);
+      expect(landState.isCrashed).toBe(true);
+    });
+
+    it('does not crash when landing neutral (no spin, no grab)', () => {
+      launchFullCharge();
+
+      let guard = 0;
+      while (!physics.getState().isGrounded && guard++ < 200) {
+        physics.step(0.05, neutralInput);
+      }
+
+      const landState = physics.getState();
+      expect(landState.isGrounded).toBe(true);
+      expect(landState.isCrashed).toBe(false);
+      expect(landState.spinRad).toBe(0);
+      expect(landState.activeGrab).toBe('none');
     });
   });
 
@@ -398,25 +659,26 @@ describe('Physics, Character & Camera (Task 2)', () => {
       expect(input.steer).toBe(0);
       expect(input.carve).toBe(0);
       expect(input.tuck).toBe(false);
-      expect(input.jump).toBe(false);
+      expect(input.jumpHeld).toBe(false);
       expect(input.reset).toBe(false);
       controller.dispose();
     });
 
     it('applies programmatic input override correctly', () => {
       const controller = new PlayerController();
-      controller.setOverride({ steer: -0.75, carve: 0.8, jump: true });
+      controller.setOverride({ steer: -0.75, carve: 0.8, jumpHeld: true });
 
       const input = controller.getInput();
       expect(input.steer).toBe(-0.75);
       expect(input.carve).toBe(0.8);
-      expect(input.jump).toBe(true);
+      expect(input.jumpHeld).toBe(true);
       expect(input.tuck).toBe(false);
 
       controller.setOverride(null);
       const restored = controller.getInput();
       expect(restored.steer).toBe(0);
       expect(restored.carve).toBe(0);
+      expect(restored.jumpHeld).toBe(false);
       controller.dispose();
     });
 
@@ -430,32 +692,31 @@ describe('Physics, Character & Camera (Task 2)', () => {
       controller.dispose();
     });
 
-    it('keyboard Space jump is edge-triggered across multiple getInput() calls until keyup (M2)', () => {
+    it('keyboard Space is a continuous jumpHeld signal across multiple getInput() calls until keyup (ADR-0008)', () => {
       const controller = new PlayerController();
 
       // Trigger Space keydown
       (controller as any).handleKeyDown({ code: 'Space', preventDefault: () => {} });
 
-      // First frame receives jump = true
+      // Every frame while Space is held reports jumpHeld = true (no edge-trigger)
       const frame1 = controller.getInput();
-      expect(frame1.jump).toBe(true);
+      expect(frame1.jumpHeld).toBe(true);
 
-      // Subsequent frames while holding Space return jump = false
       const frame2 = controller.getInput();
-      expect(frame2.jump).toBe(false);
+      expect(frame2.jumpHeld).toBe(true);
 
       const frame3 = controller.getInput();
-      expect(frame3.jump).toBe(false);
+      expect(frame3.jumpHeld).toBe(true);
 
-      // Release Space key
+      // Release Space key -> continuous signal drops
       (controller as any).handleKeyUp({ code: 'Space', preventDefault: () => {} });
       const frame4 = controller.getInput();
-      expect(frame4.jump).toBe(false);
+      expect(frame4.jumpHeld).toBe(false);
 
-      // Press Space again -> new rising edge
+      // Press Space again -> held signal returns
       (controller as any).handleKeyDown({ code: 'Space', preventDefault: () => {} });
       const frame5 = controller.getInput();
-      expect(frame5.jump).toBe(true);
+      expect(frame5.jumpHeld).toBe(true);
 
       controller.dispose();
     });

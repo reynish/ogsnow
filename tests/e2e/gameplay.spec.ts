@@ -119,6 +119,9 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     const attributionEl = page.locator('[data-testid="terrain-attribution"]');
     await expect(attributionEl).toBeVisible();
     await expect(attributionEl).toContainText('AWS Open Data');
+
+    // T4/ADR-0008: controls legend is hidden while in the menu.
+    await expect(page.locator('[data-testid="controls-legend"]')).toBeHidden();
   });
 
   test('2. Drop zone selection transitions mode to riding, loads GLB terrain, and shows HUD', async ({
@@ -142,6 +145,9 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     // Verify HUD elements are visible and displaying telemetry
     const hudOverlay = page.locator('#hud-overlay');
     await expect(hudOverlay).toBeVisible();
+
+    // T4/ADR-0008: controls legend is visible while riding (no score/combo display).
+    await expect(page.locator('[data-testid="controls-legend"]')).toBeVisible();
 
     const speedEl = page.locator('[data-testid="hud-speed"]');
     const altitudeEl = page.locator('[data-testid="hud-altitude"]');
@@ -437,5 +443,125 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     await muteBtn.click();
     state = await page.evaluate(() => window.__OGSNOW_STATE__);
     expect(state.audio.isMuted).toBe(false);
+  });
+
+  test('8. Charge-jump: hold Space to charge, release to launch, and jumpCharge resets (ADR-0008)', async ({
+    page,
+  }) => {
+    // Drop in at summit and pause live rAF for deterministic stepping.
+    await page.locator('[data-testid="drop-zone-btn-summit-express"]').click();
+    await page.waitForFunction(() => window.__OGSNOW_STATE__.mode === 'riding');
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(true);
+    });
+
+    // Controls legend must be visible while riding.
+    await expect(page.locator('[data-testid="controls-legend"]')).toBeVisible();
+
+    // 1. Charge: hold jumpHeld for jumpChargeMaxSeconds (0.5s = 10 steps @ 0.05s).
+    await page.evaluate(() => {
+      for (let i = 0; i < 10; i++) {
+        window.__OGSNOW_APP__?.stepSimulation(0.05, { jumpHeld: true });
+      }
+    });
+
+    let state = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(state.jumpCharge).toBeCloseTo(1.0, 1);
+    // Holding a charge must NOT launch the rider; release is required.
+    expect(state.isGrounded).toBe(true);
+
+    // 2. Release to launch.
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.stepSimulation(0.05, { jumpHeld: false });
+    });
+
+    state = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(state.isGrounded).toBe(false);
+    expect(state.jumpCharge).toBe(0);
+    // A full charge should produce a floaty jump, not a tiny tap.
+    expect(state.velocity.y).toBeGreaterThan(10);
+
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(false);
+    });
+  });
+
+  test('9. Trick landing: mid-rotation spin crashes and aligned spin lands clean (ADR-0008)', async ({
+    page,
+  }) => {
+    await page.locator('[data-testid="drop-zone-btn-summit-express"]').click();
+    await page.waitForFunction(() => window.__OGSNOW_STATE__.mode === 'riding');
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(true);
+    });
+
+    // Full-charge launch helper (charge 0.5s, then release).
+    const launchFullCharge = async () => {
+      await page.evaluate(() => {
+        for (let i = 0; i < 10; i++) {
+          window.__OGSNOW_APP__?.stepSimulation(0.05, { jumpHeld: true });
+        }
+        window.__OGSNOW_APP__?.stepSimulation(0.016, { jumpHeld: false });
+      });
+      const s = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+      expect(s.isGrounded).toBe(false);
+    };
+
+    // ── Case A: spin ~0.55s (~1.65 rad) then stop and land mid-rotation -> crash ──
+    await launchFullCharge();
+    await page.evaluate(() => {
+      for (let i = 0; i < 11; i++) {
+        window.__OGSNOW_APP__?.stepSimulation(0.05, { steer: 1.0 });
+      }
+    });
+
+    const airMid = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(airMid.isGrounded).toBe(false);
+    expect(airMid.spinRad).toBeGreaterThan(1.2);
+    expect(airMid.spinRad).toBeLessThan(2.1);
+
+    // Freeze the spin and wait for touchdown while keeping the rider neutral.
+    await page.evaluate(() => {
+      for (let i = 0; i < 80; i++) {
+        if (window.__OGSNOW_STATE__.player.isGrounded) break;
+        window.__OGSNOW_APP__?.stepSimulation(0.05, {});
+      }
+    });
+
+    const midLanding = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(midLanding.isGrounded).toBe(true);
+    expect(midLanding.isCrashed).toBe(true);
+
+    // ── Case B: spin to ~180 deg (3.15 rad) then stop and land aligned -> clean ──
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.stepSimulation(0.05, { reset: true });
+    });
+    await launchFullCharge();
+    await page.evaluate(() => {
+      for (let i = 0; i < 21; i++) {
+        window.__OGSNOW_APP__?.stepSimulation(0.05, { steer: 1.0 });
+      }
+    });
+
+    const airAligned = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(airAligned.isGrounded).toBe(false);
+    expect(airAligned.spinRad).toBeGreaterThan(Math.PI - 0.2);
+    expect(airAligned.spinRad).toBeLessThan(Math.PI + 0.2);
+
+    await page.evaluate(() => {
+      for (let i = 0; i < 80; i++) {
+        if (window.__OGSNOW_STATE__.player.isGrounded) break;
+        window.__OGSNOW_APP__?.stepSimulation(0.05, {});
+      }
+    });
+
+    const cleanLanding = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(cleanLanding.isGrounded).toBe(true);
+    expect(cleanLanding.isCrashed).toBe(false);
+    expect(cleanLanding.spinRad).toBe(0);
+
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(false);
+    });
   });
 });
