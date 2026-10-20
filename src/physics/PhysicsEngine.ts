@@ -24,6 +24,9 @@ export class PhysicsEngine {
   public readonly body: CANNON.Body;
 
   private state: PlayerState;
+  // Tracks the previous substep's continuous jump-hold signal so "release" is detected
+  // exactly once across the multi-substep integration loop (ADR-0008 §1).
+  private lastJumpHeld = false;
 
   constructor(terrain: TerrainManager, config: GameConfig = DEFAULT_GAME_CONFIG) {
     this.terrain = terrain;
@@ -42,6 +45,7 @@ export class PhysicsEngine {
 
   public resetAtDropZone(dropZone: DropZone): PlayerState {
     this.state = this.buildInitialState(dropZone);
+    this.lastJumpHeld = false;
     this.body.position.set(this.state.position.x, this.state.position.y, this.state.position.z);
     this.body.velocity.set(0, 0, 0);
     return this.getState();
@@ -77,14 +81,47 @@ export class PhysicsEngine {
       }
     }
 
-    // Restrict controls while crashed
+    // Restrict controls while crashed (ADR-0008: no legacy `jump` field)
     const effectiveInput: PlayerInput = this.state.isCrashed
-      ? { steer: 0, carve: 0, tuck: false, jump: false, reset: false }
+      ? { steer: 0, carve: 0, tuck: false, jumpHeld: false, reset: false }
       : input;
+
+    // 0. Charge-jump accumulation & release-to-launch (ADR-0008 §1)
+    const jumpHeld = effectiveInput.jumpHeld;
+    if (this.state.isGrounded && !this.state.isCrashed) {
+      if (jumpHeld) {
+        this.state.jumpCharge = Math.min(
+          1.0,
+          this.state.jumpCharge + dt / this.config.jumpChargeMaxSeconds
+        );
+      } else if (this.lastJumpHeld && this.state.jumpCharge > 0) {
+        const impulse =
+          this.config.jumpMinImpulse +
+          this.state.jumpCharge * (this.config.jumpMaxImpulse - this.config.jumpMinImpulse);
+        this.state.velocity.y = impulse;
+        this.state.isGrounded = false;
+        this.state.jumpCharge = 0;
+        this.state.airtimeSeconds = 0;
+      }
+    }
 
     // 1. Steering & Heading Yaw (B1: steer = +1 decrements headingRad towards -X / screen-right)
     if (this.state.isGrounded && !this.state.isCrashed) {
-      this.state.headingRad -= effectiveInput.steer * this.config.steerRateRadPerSec * dt;
+      // Crouch steering penalty while winding up a charge (ADR-0008 §1)
+      const crouchMultiplier =
+        this.state.jumpCharge > 0 ? this.config.crouchSteerRateMultiplier : 1.0;
+      this.state.headingRad -=
+        effectiveInput.steer * this.config.steerRateRadPerSec * crouchMultiplier * dt;
+      while (this.state.headingRad > Math.PI) this.state.headingRad -= 2 * Math.PI;
+      while (this.state.headingRad < -Math.PI) this.state.headingRad += 2 * Math.PI;
+    } else if (!this.state.isGrounded && !this.state.isCrashed) {
+      // Limited air steering + independent trick spin accumulation (ADR-0008 §4)
+      this.state.headingRad -=
+        effectiveInput.steer *
+        this.config.steerRateRadPerSec *
+        this.config.airSteerRateMultiplier *
+        dt;
+      this.state.spinRad += effectiveInput.steer * this.config.spinRateRadPerSec * dt;
       while (this.state.headingRad > Math.PI) this.state.headingRad -= 2 * Math.PI;
       while (this.state.headingRad < -Math.PI) this.state.headingRad += 2 * Math.PI;
     }
@@ -105,11 +142,15 @@ export class PhysicsEngine {
         : 0);
     this.state.rollRad += (targetRoll - this.state.rollRad) * Math.min(1.0, dt * 10);
 
-    // 4. Jump trigger
-    if (effectiveInput.jump && this.state.isGrounded && !this.state.isCrashed) {
-      this.state.isGrounded = false;
-      this.state.velocity.y = this.config.jumpImpulse;
-      this.state.airtimeSeconds = 0;
+    // 4. Trick grab state — reflects CURRENTLY held keys only, never latched (ADR-0008 §4/§5)
+    if (!this.state.isGrounded && !this.state.isCrashed) {
+      this.state.activeGrab = effectiveInput.tuck
+        ? 'A'
+        : effectiveInput.carve > 0
+          ? 'B'
+          : 'none';
+    } else {
+      this.state.activeGrab = 'none';
     }
 
     // 5. Carve Intensity & Angle
@@ -226,11 +267,32 @@ export class PhysicsEngine {
       this.state.velocity.y = 0;
     } else {
       if (newY <= terrainY) {
-        // Touchdown landing
+        // Touchdown landing — evaluate trick alignment/grab (ADR-0008 §5)
         newY = terrainY;
         this.state.isGrounded = true;
         this.state.airtimeSeconds = 0;
         this.state.velocity.y = 0;
+
+        const nearestHalf = Math.round(this.state.spinRad / Math.PI) * Math.PI;
+        const alignmentError = Math.abs(this.state.spinRad - nearestHalf);
+        if (
+          alignmentError > this.config.landAlignmentToleranceRad ||
+          this.state.activeGrab !== 'none'
+        ) {
+          // Wipeout: mid-rotation or still holding a grab on touchdown
+          this.state.isCrashed = true;
+          this.state.crashTimerSeconds = this.config.crashRecoverySeconds;
+          vx *= 0.15;
+          vz *= 0.15;
+          currentSpeed *= 0.15;
+          this.state.jumpCharge = 0;
+          this.state.spinRad = 0;
+          this.state.activeGrab = 'none';
+        } else {
+          // Clean landing: zero trick state and keep riding
+          this.state.spinRad = 0;
+          this.state.activeGrab = 'none';
+        }
       }
     }
 
@@ -318,6 +380,7 @@ export class PhysicsEngine {
     this.body.velocity.set(vx, this.state.velocity.y, vz);
     this.world.step(dt);
 
+    this.lastJumpHeld = jumpHeld;
     return null;
   }
 
@@ -332,6 +395,9 @@ export class PhysicsEngine {
   public forceCrash(): void {
     this.state.isCrashed = true;
     this.state.crashTimerSeconds = this.config.crashRecoverySeconds;
+    this.state.jumpCharge = 0;
+    this.state.spinRad = 0;
+    this.state.activeGrab = 'none';
     this.state.velocity.x *= 0.15;
     this.state.velocity.z *= 0.15;
     this.state.speedMs *= 0.15;
@@ -366,6 +432,9 @@ export class PhysicsEngine {
       altitudeMeters: Math.round(spawnY),
       distanceTraveledMeters: 0,
       activeDropZoneId: dropZone.id,
+      jumpCharge: 0,
+      spinRad: 0,
+      activeGrab: 'none',
     };
   }
 }
