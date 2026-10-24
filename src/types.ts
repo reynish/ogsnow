@@ -153,6 +153,8 @@ export interface PlayerState {
   jumpCharge: number;       // 0.0 to 1.0 charge accumulated while jumpHeld + grounded; reset on release/launch/crash
   spinRad: number;          // Accumulated mid-air spin yaw in radians (independent of headingRad); reset on touchdown
   activeGrab: 'none' | 'A' | 'B'; // Mid-air grab pose: 'A' = indy/method (W), 'B' = melon/tail (S), 'none' = not grabbing
+  stanceRad: number;      // Persistent visual yaw offset of the rider relative to the board (0 = normal, π = switch);
+                          // absorbs the nearest-π multiple of spinRad on a clean landing (mod 2π); reset on crash/reset. Visual-only.
 }
 
 export interface AudioState {

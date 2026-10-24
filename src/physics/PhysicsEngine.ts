@@ -130,7 +130,10 @@ export class PhysicsEngine {
       // takeoff value, which equals the direction of travel (grounded velocity
       // alignment) and is never modified while airborne — so FollowCamera stays
       // locked behind the travel direction (owner PR-4 comment / README §8.3).
-      this.state.spinRad += effectiveInput.steer * this.config.spinRateRadPerSec * dt;
+      // Spin sign matches the ADR-0006 ground steering convention: steer = +1 (D)
+      // DECREMENTS the angle -> nose toward world -X -> screen-right (clockwise
+      // from the chase camera), exactly like a ground D-turn.
+      this.state.spinRad -= effectiveInput.steer * this.config.spinRateRadPerSec * dt;
     }
 
     // 2. Slope pitch at current coordinates along heading
@@ -295,7 +298,8 @@ export class PhysicsEngine {
           alignmentError > this.config.landAlignmentToleranceRad ||
           this.state.activeGrab !== 'none'
         ) {
-          // Wipeout: mid-rotation or still holding a grab on touchdown
+          // Wipeout: mid-rotation or still holding a grab on touchdown.
+          // Crash resets stance to normal (owner PR-4 round-2 feedback).
           this.state.isCrashed = true;
           this.state.crashTimerSeconds = this.config.crashRecoverySeconds;
           vx *= 0.15;
@@ -303,9 +307,14 @@ export class PhysicsEngine {
           currentSpeed *= 0.15;
           this.state.jumpCharge = 0;
           this.state.spinRad = 0;
+          this.state.stanceRad = 0;
           this.state.activeGrab = 'none';
         } else {
-          // Clean landing: zero trick state and keep riding
+          // Clean landing: absorb the nearest-180° multiple into the persistent
+          // stance offset (switch stance: 180/540 -> switch, 360/720 -> normal),
+          // then zero trick state and keep riding.
+          this.state.stanceRad =
+            (((this.state.stanceRad + nearestHalf) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
           this.state.spinRad = 0;
           this.state.activeGrab = 'none';
         }
@@ -413,6 +422,7 @@ export class PhysicsEngine {
     this.state.crashTimerSeconds = this.config.crashRecoverySeconds;
     this.state.jumpCharge = 0;
     this.state.spinRad = 0;
+    this.state.stanceRad = 0;
     this.state.activeGrab = 'none';
     this.state.velocity.x *= 0.15;
     this.state.velocity.z *= 0.15;
@@ -450,6 +460,7 @@ export class PhysicsEngine {
       activeDropZoneId: dropZone.id,
       jumpCharge: 0,
       spinRad: 0,
+      stanceRad: 0,
       activeGrab: 'none',
     };
   }

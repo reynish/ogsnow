@@ -243,12 +243,17 @@ export class SnowboardCharacter {
       this.riderGroup.rotation.z = carveLean;
       this.riderGroup.rotation.x = 0;
 
-      // Air spin: visually yaw the rider independently of the board heading.
-      // When grounded, ease the spin back to the neutral (0) yaw.
+      // Air spin: visually yaw the rider (persistent stance offset + in-air spin)
+      // independently of the board heading. When grounded, ease toward the
+      // persistent stance yaw (switch stance) along the SHORTEST path — a naive
+      // ease would visibly unwind a full reverse rotation after a landed 360.
       if (state.isGrounded) {
-        this.riderGroup.rotation.y += (0 - this.riderGroup.rotation.y) * k;
+        const target =
+          state.stanceRad +
+          2 * Math.PI * Math.round((this.riderGroup.rotation.y - state.stanceRad) / (2 * Math.PI));
+        this.riderGroup.rotation.y += (target - this.riderGroup.rotation.y) * k;
       } else {
-        this.riderGroup.rotation.y = state.spinRad;
+        this.riderGroup.rotation.y = state.stanceRad + state.spinRad;
       }
 
       // Crouch / wind-up pose from jumpCharge (0..1). Targets match the

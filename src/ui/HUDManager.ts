@@ -400,7 +400,7 @@ export class HUDManager {
 
     const legendRows: Array<[string, string]> = [
       ['SPACE', 'Hold to charge jump, release to launch'],
-      ['A / D', 'Ground: steer • Air: spin frontside / backside'],
+      ['A / D', 'Ground: steer • Air: spin — land a 180 to ride switch'],
       ['W', 'Ground: tuck • Air: grab A (Indy / Method)'],
       ['S', 'Ground: carve • Air: grab B (Melon / Tail)'],
       ['R', 'Reset to drop zone'],
