@@ -141,7 +141,7 @@ flowchart TD
 | `TerrainManager` | `src/terrain/TerrainManager.ts` | Loads committed `.glb` + `.json` + `.bin`, reconstructs `TerrainData`, manages mesh + obstacles, bilinear `getHeightAt(x,z)`/`getNormalAt(x,z)`. |
 | `Fetch` | `scripts/fetch-terrain.ts` | Node CLI (`npm run fetch-terrain -- --mountain <id>`): downloads pinned tiles → `.cache/terrain/`, decodes/reprojects/resamples, writes `<id>-dem.bin` + `<id>-terrain.json`. |
 | `Gen` | `scripts/generate-glb.ts` | Node CLI (offline): reads committed `.bin` + `.json`, runs derivation, exports deterministic `.glb`, enriches manifest. |
-| `PhysicsEngine` | `src/physics/PhysicsEngine.ts` | `cannon-es` world + slope-aligned snowboard dynamics: gravity projection along slope normal, carving deceleration, edge grip, obstacle/boundary collisions, crash recovery, airtime detection, **charge-jump mechanics** (Iteration 3: `jumpCharge` accumulation + release-to-launch), **air control** (limited steering while airborne), **spin accumulation** (`spinRad`), and **trick landing evaluation** (alignment tolerance + grab-on-touchdown crash rule). |
+| `PhysicsEngine` | `src/physics/PhysicsEngine.ts` | `cannon-es` world + slope-aligned snowboard dynamics: gravity projection along slope normal, carving deceleration, edge grip, obstacle/boundary collisions, crash recovery, airtime detection, **charge-jump mechanics** (Iteration 3: `jumpCharge` accumulation + release-to-launch), **frozen air heading** (`headingRad` locked at takeoff; `A`/`D` spins only), **spin accumulation** (`spinRad`), and **trick landing evaluation** (alignment tolerance + grab-on-touchdown crash rule). |
 | `InputController` | `src/player/PlayerController.ts` | Captures keyboard (`WASD` / Arrow keys / `Space` / `R`) and Gamepad inputs, plus programmatic input injection for E2E testing. |
 | `SnowboardCharacter` | `src/player/SnowboardCharacter.ts` | Low-poly PS1-style 3D snowboarder + board mesh hierarchy with procedural lean, carve tilt, pitch alignment, snow spray particles, **crouch/wind-up pose** (Iteration 3: interpolated from `jumpCharge`), **spin visual rotation** (`spinRad` yaw), **grab A/B arm poses** (`activeGrab`), and **landing squash** (brief compression on touchdown). |
 | `FollowCamera` | `src/camera/FollowCamera.ts` | Third-person dynamic chase camera that interpolates position, look-at target, pitch tilt, and FOV (`62°` to `84°`) based on speed and slope pitch, with instant snap on drop-in/reset. |
@@ -316,7 +316,7 @@ sequenceDiagram
     end
 
     alt !isGrounded (Airborne)
-        Phys->>Phys: effectiveSteerRate *= airSteerRateMultiplier (0.35)
+        Phys->>Phys: headingRad FROZEN at takeoff value (no air steering; camera stays locked behind direction of travel)
         Phys->>Phys: spinRad += input.steer * spinRateRadPerSec * dt
         
         alt input.tuck && !wasActiveGrab
@@ -362,3 +362,5 @@ sequenceDiagram
 | Gamepad analog stick | Steer left/right | Spin left/right |
 | Gamepad `LT`/`B` | Carve/brake | Grab B |
 | Gamepad `RT` | Tuck | Grab A (alternative mapping) |
+
+**Airborne heading policy (ADR-0008, amended 2026-10-24):** while airborne the travel heading `headingRad` is **frozen** at its takeoff value — none of the airborne inputs above rotate the heading or the follow camera; `A`/`D` (or the stick) only spin the character (`spinRad`). Steering authority returns on touchdown.

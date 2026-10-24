@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-20
+- **Amended:** 2026-10-24 (PR-4 owner review comment, reynish) — while airborne the camera must stay fixed behind the rider's direction of travel. `headingRad` is therefore **frozen** at its takeoff value while airborne (`A`/`D` drives `spinRad` only, no air steering), and the `airSteerRateMultiplier` config field has been **removed**. See Context item 4 and §4.
 - **Iteration:** `feat/charge-jump-tricks`
 - **Supersedes:** ADR-0003 §"Decision.1" (jump impulse + edge-trigger semantics), §"Decision.1" (single-value `gravity` of `22 m/s²`), §"Decision.1" (grounded steering without crouch penalty), §"Decision.1" (airborne behavior without air control/tricks); and ADR-0006 §4 "Rising-Edge Jump Detection (M2)" (`input.jump` + `wasJumpPressed`), which is replaced by the `jumpHeld` charge/release contract below. ADR-0003's coordinate conventions, carve drag, crash threshold/recovery, and obstacle collision rules remain **in force**. (ADR-0006 line 81 retains the historical guardrail text for context; `PlayerInput.jump` is no longer an active field anywhere.)
 - **Superseded-by:** — (active)
@@ -13,7 +14,7 @@ Iteration 1–2 shipped an instantaneous edge-triggered `jump` (fixed impulse `7
 1. A **charge-and-release jump** (hold-to-wind, release-to-pop) where `Space` (gamepad `A`) held while grounded enters a visible **crouch/charge state** that accumulates `jumpCharge` (`0.0` to `1.0`) over `~0.5 s` and launches with an impulse interpolated **linearly** between a minimal tap (`jumpMinImpulse`) and a full charge (`jumpMaxImpulse`).
 2. A **crouch steering penalty**: while winding up (`jumpCharge > 0`), effective steering and carve authority drop to `~0.4×` normal so the rider cannot carve aggressively while compressed.
 3. **Realistic gravity retune** (lowering from `22 m/s²` toward `~14 m/s²`) with retuned impulses so a full-charge jump yields a floaty, semi-realistic air time of roughly **`1.8–2.2 s`** (evoking *SSX 3* / *Amped* float feel while preserving arcade responsiveness).
-4. **Air control**: while airborne, steering authority is limited (≈ `0.35×` ground rate), slope acceleration is disabled, and existing quadratic air drag is retained.
+4. **Air control**: while airborne, the travel heading (`headingRad`) is **frozen** at its takeoff value (which equals the direction of travel), `A`/`D` drive trick spins (`spinRad`) only, and the camera stays fixed behind the direction of travel until touchdown; slope acceleration is disabled, and existing quadratic air drag is retained. Steering authority returns on landing.
 5. **Spins and grabs**: while airborne, `A/D` (or `←/→`) spin the character yaw (`spinRad` accumulates independent of the physics travel heading), `W` (or `↑`) triggers **grab A** (indy/method), `S` (or `↓`) triggers **grab B** (melon/tail). Ground meanings of `A/D` (steer), `W` (tuck), `S` (carve) are preserved on the snow.
 6. **Trick landing rule (risk/reward)**: on touchdown, if the rider is **mid-rotation** (not aligned to a `±60°` tolerance around a `180°`/`360°` multiple) **or is still holding a grab**, `isCrashed` is set and the existing crash-recovery flow applies (arrest friction + `crashRecoverySeconds` timer). Clean landings (aligned rotation, no active grab) continue riding normally.
 
@@ -58,7 +59,6 @@ export interface PlayerInput {
   jumpMinImpulse: 4.5,
   jumpMaxImpulse: 14.0,
   crouchSteerRateMultiplier: 0.4,
-  airSteerRateMultiplier: 0.35,
   ```
 
 **Air-time calculation** (for reference):
@@ -87,7 +87,7 @@ While `isGrounded === false`:
 - `input.steer` (A/D or ←/→): **spin** frontside/backside (`spinRad += input.steer * config.spinRateRadPerSec * dt`; typical `spinRateRadPerSec ≈ 3.0` allows 1 full rotation in ~2 s).
 - `input.tuck` (`W` / `↑`): **grab A** (`activeGrab = 'A'` while held, releases to `'none'` on key-up).
 - `input.carve` (`S` / `↓`): **grab B** (`activeGrab = 'B'` while held, releases to `'none'` on key-up).
-- **Physics steering**: the travel heading (`headingRad`) is **frozen** or limited (≈ `airSteerRateMultiplier = 0.35×` ground rate for subtle mid-air adjustments). The visual spin (`spinRad`) is rendered on the character and is independent of the travel direction.
+- **Physics steering**: the travel heading (`headingRad`) is **frozen** at its takeoff value while airborne — there is no airborne heading steering (`airSteerRateMultiplier` was removed in the 2026-10-24 amendment), so `A`/`D` affects `spinRad` only and the camera stays locked behind the direction of travel until touchdown. The visual spin (`spinRad`) is rendered on the character and is independent of the travel direction.
 
 On ground (`isGrounded === true`):
 - Existing meanings preserved: `input.steer` → steering, `input.tuck` → tuck/aerodynamic boost, `input.carve` → carving/braking. `spinRad` and `activeGrab` are reset/ignored.

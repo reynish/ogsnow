@@ -100,7 +100,7 @@ real-life-steep/
 
 **Agent ownership boundaries (Iteration 3):**
 - **T1 (Input Mapping):** `PlayerController` (add `jumpHeld` wire, gamepad A button), `types.ts`, `config.ts`.
-- **T2 (Physics/Air/Trick Logic):** `PhysicsEngine` (charge accumulation, release-to-launch, air steering limit, spin accumulation, trick landing evaluation).
+- **T2 (Physics/Air/Trick Logic):** `PhysicsEngine` (charge accumulation, release-to-launch, frozen airborne heading + spin accumulation, trick landing evaluation).
 - **T3 (Character Poses):** `SnowboardCharacter` (crouch/wind-up, spin visual rotation, grab A/B arm poses, landing squash).
 - **T4 (HUD Controls Legend):** `HUDManager` (display controls help overlay; no score display).
 - **T5 (Tests):** unit (`physics.test.ts` additions, new `character.test.ts`) and E2E (`gameplay.spec.ts` trick assertions).
@@ -242,7 +242,6 @@ export interface GameConfig {
   jumpMinImpulse: number;               // vertical impulse for minimal tap (e.g. 4.5 m/s)
   jumpMaxImpulse: number;               // vertical impulse for full charge (e.g. 14.0 m/s)
   crouchSteerRateMultiplier: number;    // effective steering rate while jumpCharge > 0 (e.g. 0.4 = 40% of normal)
-  airSteerRateMultiplier: number;       // effective steering rate while airborne (e.g. 0.35 = 35% of normal)
   spinRateRadPerSec: number;            // spin accumulation rate while airborne (e.g. 3.0 rad/s)
   landAlignmentToleranceRad: number;    // tolerance for clean trick landing vs crash (e.g. π/3 = 60°)
 }

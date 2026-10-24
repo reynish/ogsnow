@@ -32,7 +32,8 @@ flowchart TD
 - **Assigned Role:** Execution Sub-Agent T1 (Input & Configuration)
 - **Owned Files (changed):**
   - `src/types.ts` (add `jumpHeld`, `jumpCharge`, `spinRad`, `activeGrab`, new config fields)
-  - `src/config.ts` (gravity `14.0`, add `jumpChargeMaxSeconds`, `jumpMinImpulse`, `jumpMaxImpulse`, `crouchSteerRateMultiplier`, `airSteerRateMultiplier`, `spinRateRadPerSec`, `landAlignmentToleranceRad`; keep `jumpImpulse` but mark deprecated)
+  - `src/config.ts` (gravity `14.0`, add `jumpChargeMaxSeconds`, `jumpMinImpulse`, `jumpMaxImpulse`, `crouchSteerRateMultiplier`, `spinRateRadPerSec`, `landAlignmentToleranceRad`; keep `jumpImpulse` but mark deprecated)
+    - _(PR-4 fix, 2026-10-24: `airSteerRateMultiplier` was removed — heading is frozen while airborne per the owner review comment.)_
   - `src/player/PlayerController.ts` (add `jumpHeld` tracking, gamepad `A` button mapping for charge-jump)
 - **Detailed Requirements:**
 
@@ -70,11 +71,12 @@ export interface GameConfig {
   jumpMinImpulse: number;               // minimal tap impulse (e.g. 4.5 m/s)
   jumpMaxImpulse: number;               // full charge impulse (e.g. 14.0 m/s)
   crouchSteerRateMultiplier: number;    // e.g. 0.4 (40% of normal while charging)
-  airSteerRateMultiplier: number;       // e.g. 0.35 (35% of normal while airborne)
   spinRateRadPerSec: number;            // e.g. 3.0 rad/s
   landAlignmentToleranceRad: number;    // e.g. Math.PI / 3 (60°)
 }
 ```
+
+_(PR-4 fix, 2026-10-24: `airSteerRateMultiplier` was removed — while airborne `headingRad` is frozen at takeoff and `A`/`D` drives `spinRad` only, so the camera stays locked behind the direction of travel.)_
 
 ### 1.2 Config Value Updates (`src/config.ts`)
 
@@ -88,12 +90,13 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   jumpMinImpulse: 4.5,                  // NEW
   jumpMaxImpulse: 14.0,                 // NEW
   crouchSteerRateMultiplier: 0.4,       // NEW
-  airSteerRateMultiplier: 0.35,         // NEW
   spinRateRadPerSec: 3.0,               // NEW
   landAlignmentToleranceRad: Math.PI / 3, // NEW (60°)
   // all other fields unchanged (audio, camera, carve/air drag, crash threshold, etc.)
 };
 ```
+
+_(PR-4 fix, 2026-10-24: `airSteerRateMultiplier: 0.35` was removed from this listing — heading is frozen while airborne.)_
 
 ### 1.3 PlayerController Input Mapping (`src/player/PlayerController.ts`)
 
@@ -149,7 +152,7 @@ private pollGamepadButtonA(): boolean {
 
 - **Assigned Role:** Execution Sub-Agent T2 (Physics & Air Mechanics)
 - **Owned Files (changed):**
-  - `src/physics/PhysicsEngine.ts` (replace edge-trigger jump with charge accumulation + release-to-launch; air steering limit; spin accumulation; trick landing evaluation)
+  - `src/physics/PhysicsEngine.ts` (replace edge-trigger jump with charge accumulation + release-to-launch; frozen airborne heading + spin accumulation; trick landing evaluation)
 - **Detailed Requirements:**
 
 ### 2.1 Charge Accumulation (Grounded)
@@ -186,9 +189,9 @@ Apply `effectiveSteerRate` to `headingRad` update and carve alignment.
 
 While `!this.state.isGrounded` (airborne):
 ```typescript
-// Limited air steering (heading adjustment)
-const effectiveAirSteer = this.config.steerRateRadPerSec * this.config.airSteerRateMultiplier;
-this.state.headingRad -= input.steer * effectiveAirSteer * dt;
+// Airborne: headingRad FROZEN at takeoff value (== direction of travel).
+// No air steering — A/D drives spin only, so FollowCamera stays locked
+// behind the direction of travel (PR-4 owner review comment).
 
 // Spin accumulation (visual rotation, independent of heading)
 this.state.spinRad += input.steer * this.config.spinRateRadPerSec * dt;

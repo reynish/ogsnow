@@ -167,7 +167,7 @@ This iteration replaces the single-button instantaneous jump with a **charge-and
 ### 8.2 Realistic Air Time & Air Control
 
 *   **Gravity retune:** World gravity is lowered (from the arcade `22 m/s²` toward ≈ `14 m/s²`) with impulses retuned so a full-charge jump produces a floaty, semi-realistic air time of roughly **1.8–2.2 s**.
-*   **Air control:** While airborne, steering authority is limited (≈ `0.35×` ground rate), slope acceleration is disabled, and the existing quadratic air drag is retained.
+*   **Air control:** While airborne there is **no heading steering** — the travel heading is frozen at its takeoff value (which equals the direction of travel), and `A`/`D` perform trick spins only. The camera stays fixed behind the direction of travel until touchdown; steering authority returns on landing. Slope acceleration is disabled, and the existing quadratic air drag is retained.
 *   **Landing:** Touchdown is detected against the terrain surface (as today) and additionally evaluated against the rider's rotational alignment (Section 8.4).
 
 ### 8.3 Trick Controls (airborne)
@@ -176,7 +176,7 @@ This iteration replaces the single-button instantaneous jump with a **charge-and
 *   `W` (or `↑`) — **grab A** (indy / method).
 *   `S` (or `↓`) — **grab B** (melon / tail).
 *   Ground meanings are preserved: on the snow, `A`/`D` steer, `W` tucks, `S` carves; the airborne meanings above apply only while `isGrounded === false`.
-*   The physics **travel heading** remains the direction of motion; the **visual spin** is rendered on the character independently of heading.
+*   The physics **travel heading** remains the direction of motion and is frozen at its takeoff value while airborne — spin input (`A`/`D`) rotates neither the board's travel heading nor the camera; the **visual spin** is rendered on the character independently of heading.
 
 ### 8.4 Trick Landing Rule (risk/reward)
 

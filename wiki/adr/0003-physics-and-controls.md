@@ -9,7 +9,7 @@
 > - §1 **Jump mechanics**: edge-triggered single-impulse jump (`jumpImpulse: 7.5`) is replaced by hold-to-charge/release-to-pop (`jumpCharge`, `jumpMinImpulse`, `jumpMaxImpulse`).
 > - §1 **Gravity**: single-value `gravity: 22.0 m/s²` is replaced by `gravity: 14.0 m/s²` (realistic retune for floaty air time).
 > - §1 **Grounded steering**: no crouch penalty is replaced by `crouchSteerRateMultiplier` (≈ `0.4×`) applied while `jumpCharge > 0`.
-> - §1 **Airborne behavior**: no air control or tricks is replaced by air steering (≈ `0.35×` ground rate), spin (`spinRad`), and grab mechanics (`activeGrab`).
+> - §1 **Airborne behavior**: no air control or tricks is replaced by a **frozen travel heading** while airborne (`A`/`D` drives spin `spinRad` only, per the ADR-0008 2026-10-24 amendment), and grab mechanics (`activeGrab`).
 >
 > **Historical context retained below:** All other rules remain in force: coordinate conventions (downhill `+Z`, `steer=+1` decrements `headingRad` → world `-X` / screen-right), carve drag, crash speed threshold (`28 km/h`), crash-recovery arrest friction, obstacle collision radial push-out, and boundary clamping.
 
