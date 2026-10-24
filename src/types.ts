@@ -127,8 +127,8 @@ export interface TerrainData {
 export interface PlayerInput {
   steer: number;          // -1.0 (left) to +1.0 (right)
   carve: number;          // 0.0 (none) to 1.0 (hard braking/carving)
-  tuck: boolean;          // true when leaning forward for speed (W / ArrowUp)
-  jump: boolean;          // true when jump triggered (Space)
+  tuck: boolean;          // true when leaning forward for speed (W / ArrowUp); mid-air = grab A
+  jumpHeld: boolean;      // true while Space (or gamepad A) is held down (continuous hold, not edge-triggered) — ADR-0008
   reset: boolean;         // true when reset to drop-zone requested (R)
 }
 
@@ -149,6 +149,12 @@ export interface PlayerState {
   altitudeMeters: number;   // Real-world equivalent altitude for HUD
   distanceTraveledMeters: number;
   activeDropZoneId: string;
+  // ---- Iteration 3 charge-jump & trick fields (ADR-0008) ----
+  jumpCharge: number;       // 0.0 to 1.0 charge accumulated while jumpHeld + grounded; reset on release/launch/crash
+  spinRad: number;          // Accumulated mid-air spin yaw in radians (independent of headingRad); reset on touchdown
+  activeGrab: 'none' | 'A' | 'B'; // Mid-air grab pose: 'A' = indy/method (W), 'B' = melon/tail (S), 'none' = not grabbing
+  stanceRad: number;      // Persistent visual yaw offset of the rider relative to the board (0 = normal, π = switch);
+                          // absorbs the nearest-π multiple of spinRad on a clean landing (mod 2π); reset on crash/reset. Visual-only.
 }
 
 export interface AudioState {
@@ -180,7 +186,7 @@ export interface GameConfig {
   carveDragCoefficient: number;
   airDragCoefficient: number;
   baseSlopeFriction: number;
-  jumpImpulse: number;
+  jumpImpulse: number;                  // DEPRECATED (Iteration 3): replaced by jumpMinImpulse/jumpMaxImpulse
   crashSpeedThresholdKmh: number;
   crashRecoverySeconds: number;
   audioBpm: number;
@@ -193,6 +199,13 @@ export interface GameConfig {
   cameraMaxFov: number;
   dropZones: DropZone[];
   attribution?: string[];
+  // ---- Iteration 3 NEW charge-jump & trick config fields (ADR-0008) ----
+  jumpChargeMaxSeconds: number;         // duration to charge from 0.0 to 1.0 (e.g. 0.5 s)
+  jumpMinImpulse: number;               // vertical impulse for minimal tap (e.g. 4.5 m/s)
+  jumpMaxImpulse: number;               // vertical impulse for full charge (e.g. 14.0 m/s)
+  crouchSteerRateMultiplier: number;    // effective steering rate while jumpCharge > 0 (e.g. 0.4 = 40% of normal)
+  spinRateRadPerSec: number;            // spin accumulation rate while airborne (e.g. 3.0 rad/s)
+  landAlignmentToleranceRad: number;    // tolerance for clean trick landing vs crash (e.g. π/3 = 60°)
 }
 
 export interface OGSnowGlobalState {

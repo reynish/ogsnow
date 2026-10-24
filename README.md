@@ -149,3 +149,64 @@ A mountain registry entry (`id`, `name`, `region`, origin lat/lon, bounding box,
 \*   **Physics Engine:** Cannon.js or Ammo.js to handle the complex physics of a board sliding on uneven, sloped terrain.
 
 \*   **Asset Format:** `.glTF` / `.glb` for all 3D models (terrain, character, snowboard) to ensure rapid loading over standard internet connections.
+
+---
+
+## 8. Iteration 3 — Charge Jump, Crouch & Tricks (`feat/charge-jump-tricks`)
+
+This iteration replaces the single-button instantaneous jump with a **charge-and-release (wind-up) jump**, gives the rider distinct **crouch and aerial poses**, and adds **spins and grabs** with a risk/reward crash-on-bad-landing mechanic. It builds on Section 5 (Core Physics & Controls) and supersedes the jump/steering behaviour described in ADR-0003 where they conflict.
+
+### 8.1 Charge-and-Release Jump (hold `Space`)
+
+*   **Wind-up:** Holding `Space` (or gamepad `A`) while grounded enters a **crouch/charge state**. The rider visibly compresses (knees bend, hips drop, torso leans forward, board flexes).
+*   **Charge curve:** `jumpCharge` ramps from `0.0` to `1.0` over a configurable `jumpChargeMaxSeconds` (≈ `0.5 s`). Holding beyond full charge caps at `1.0` and does not consume anything further.
+*   **Release to pop:** Releasing `Space` launches the rider with a vertical impulse interpolated **linearly** between `jumpMinImpulse` (quick tap) and `jumpMaxImpulse` (full charge). A tap before any charge still produces a minimal hop — input is never dead.
+*   **No re-trigger:** Jumping is only possible while grounded; holding `Space` in the air never re-triggers a jump. Each charge requires a fresh key-down.
+*   **Crouch steering penalty:** While crouched/winding up, the effective steering rate and carve authority are reduced (≈ `0.4×` of the normal standing rate) so the rider cannot carve as hard while compressed. Steering authority is restored on release/stand.
+
+### 8.2 Realistic Air Time & Air Control
+
+*   **Gravity retune:** World gravity is lowered (from the arcade `22 m/s²` toward ≈ `14 m/s²`) with impulses retuned so a full-charge jump produces a floaty, semi-realistic air time of roughly **1.8–2.2 s**.
+*   **Air control:** While airborne there is **no heading steering** — the travel heading is frozen at its takeoff value (which equals the direction of travel), and `A`/`D` perform trick spins only. The camera stays fixed behind the direction of travel until touchdown; steering authority returns on landing. Slope acceleration is disabled, and the existing quadratic air drag is retained.
+*   **Landing:** Touchdown is detected against the terrain surface (as today) and additionally evaluated against the rider's rotational alignment (Section 8.4).
+
+### 8.3 Trick Controls (airborne)
+
+*   `A` / `D` (or `←` / `→`) — **spin** (frontside/backside yaw). Spin rate scales with speed.
+*   **Spin-direction convention:** `D`/`→` spins the rider **clockwise (screen-right)**, exactly matching the ground-steering direction; `A`/`←` spins **counterclockwise (screen-left)**. `spinRad` shares `headingRad`'s sign convention (ADR-0006): `steer = +1` (D) **decrements** the angle, `steer = −1` (A) increments it. With a regular (left-foot-forward) stance, `D` is a **backside** spin and `A` is a **frontside** spin.
+*   `W` (or `↑`) — **grab A** (indy / method).
+*   `S` (or `↓`) — **grab B** (melon / tail).
+*   Ground meanings are preserved: on the snow, `A`/`D` steer, `W` tucks, `S` carves; the airborne meanings above apply only while `isGrounded === false`.
+*   The physics **travel heading** remains the direction of motion and is frozen at its takeoff value while airborne — spin input (`A`/`D`) rotates neither the board's travel heading nor the camera; the **visual spin** is rendered on the character independently of heading.
+
+### 8.4 Trick Landing Rule (risk/reward)
+
+*   On touchdown the accumulated `spinRad` is compared to the nearest multiple of `π` (`180°`) within a tolerance (≈ `±60°`).
+*   **Clean landing:** Rotation is aligned (or the rider is not spinning/grabbing) → rider continues riding normally.
+*   **Switch-stance persistence:** a clean landing absorbs the nearest `180°` multiple of `spinRad` into a persistent, **visual-only** stance offset (`stanceRad`). Landing a `180°`/`540°` (odd multiple of `π`) leaves the rider riding **switch/goofy**; a `360°`/`720°` (even multiple) returns to the **normal** stance. A **crash/wipeout** or drop-zone **reset** reverts the stance to normal. Travel heading is unaffected — stance is cosmetic only.
+*   **Wipeout:** If the rider touches down **mid-rotation** (not near a `180°`/`360°` multiple) **or is still holding a grab**, the rider **crashes** (`isCrashed`, using the existing crash-recovery flow and arrest friction). Landing out of a trick is therefore a genuine risk.
+
+### 8.5 Character Model Response
+
+*   **Crouch/charge pose:** interpolated from `jumpCharge` — compressed legs, dropped hips, forward-leaning torso, board flex.
+*   **Air/trick poses:** while airborne the character group visually yaws with `stanceRad + spinRad` (persistent stance offset plus in-air spin), and the corresponding arm reaches to the board edge while a grab is held.
+*   **Grounded stance ease:** after touchdown the character's visual yaw eases to the persistent `stanceRad` stance — **not** to `0` unless the stance is normal. The ease takes the shortest angular path, so a landed `360°` unwinds only the small residual alignment error instead of visibly rotating a full turn backwards.
+*   **Landing squash:** a brief compression on clean touchdown; the existing wipeout tumble is retained for crashes.
+
+### 8.6 Out of Scope (this iteration)
+
+*   No trick **scoring / combo / points** system and no new HUD score display. Tricks are expressed visually and through the crash-on-bad-landing mechanic only.
+*   No new mountains or terrain-pipeline changes.
+
+### 8.7 Acceptance Criteria (Definition of Done)
+
+1. Holding `Space` while grounded enters a crouch/charge state with `jumpCharge` ramping to `1.0` over `jumpChargeMaxSeconds`; releasing launches with an impulse monotonic in charge.
+2. A tap (`Space` down then up immediately) produces a minimal hop and never a full-power jump; a full charge produces the configured maximum impulse and the longest air time.
+3. Effective steer rate while `jumpCharge > 0` is measurably lower than while standing (≈ `0.4×`), per ADR-0008.
+4. Full-charge air time falls within the configured realistic band (≈ `1.8–2.2 s`) under the retuned gravity.
+5. Spins (A/D) accumulate `spinRad` while airborne and rotate the character visually; grabs (W/S) set an active grab pose.
+6. Landing mid-rotation or while grabbing sets `isCrashed = true` and recovers via the existing `crashRecoverySeconds`; landing aligned (or not tricking) does not crash.
+7. `npm run build`, `npm test`, and `npm run test:e2e` pass with zero runtime/console errors; existing camera/audio/terrain contracts remain intact.
+8. `wiki/interfaces.md`, `wiki/architecture.md`, and a new ADR-0008 document the new input/state fields and control rules; ADR-0003 is superseded where it conflicts.
+9. Airborne `D`/`→` (`steer = +1`) **decrements** `spinRad` — the rider spins clockwise/screen-right, matching the ground-steering direction — and `A`/`←` increments it; verified by unit + E2E spin-sign tests (per the ADR-0008 round-2 amendment).
+10. A clean landing absorbs the nearest `180°` multiple of `spinRad` into `stanceRad`: a landed `180°` leaves the rider in a persistent switch stance while grounded, a `360°` returns to normal, and a crash or reset reverts to normal; verified by unit + E2E stance-persistence tests (per the ADR-0008 round-2 amendment).

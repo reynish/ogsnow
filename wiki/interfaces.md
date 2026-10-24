@@ -83,6 +83,30 @@ real-life-steep/
 | `tests/unit/physics.test.ts`, `tests/e2e/gameplay.spec.ts` | Updated | T4 |
 | `.github/workflows/ci.yml` | Changed | T5 |
 
+### Iteration 3 change matrix (which files are new/changed, and owner)
+
+| File | New / Changed | Owner Sub-Agent |
+| :--- | :--- | :--- |
+| `src/types.ts` | Changed (add `jumpHeld`, `jumpCharge`, `spinRad`, `stanceRad`, `activeGrab`, new config fields) | T1 |
+| `src/config.ts` | Changed (gravity 14.0, add charge/trick params, deprecate `jumpImpulse`) | T1 |
+| `src/player/PlayerController.ts` | Changed (add `jumpHeld` tracking, gamepad A button mapping) | T1 |
+| `src/physics/PhysicsEngine.ts` | Changed (charge-jump logic, air control, spin, trick landing rule) | T2 |
+| `src/player/SnowboardCharacter.ts` | Changed (crouch/charge pose, spin rotation, grab A/B poses, landing squash) | T3 |
+| `src/ui/HUDManager.ts` | Changed (add controls legend for charge-jump, tricks; no score display) | T4 |
+| `tests/unit/physics.test.ts` | Changed (add charge-jump, spin, grab, landing-alignment tests) | T5 |
+| `tests/unit/character.test.ts` | New (add crouch/spin/grab pose tests) | T5 |
+| `tests/e2e/gameplay.spec.ts` | Changed (E2E charge-jump, trick, landing crash assertions) | T5 |
+| `.github/workflows/ci.yml` | Unchanged (existing CI already covers new tests) | — |
+
+**Agent ownership boundaries (Iteration 3):**
+- **T1 (Input Mapping):** `PlayerController` (add `jumpHeld` wire, gamepad A button), `types.ts`, `config.ts`.
+- **T2 (Physics/Air/Trick Logic):** `PhysicsEngine` (charge accumulation, release-to-launch, frozen airborne heading + spin accumulation, trick landing evaluation).
+- **T3 (Character Poses):** `SnowboardCharacter` (crouch/wind-up, spin visual rotation, grab A/B arm poses, landing squash).
+- **T4 (HUD Controls Legend):** `HUDManager` (display controls help overlay; no score display).
+- **T5 (Tests):** unit (`physics.test.ts` additions, new `character.test.ts`) and E2E (`gameplay.spec.ts` trick assertions).
+
+**No file conflicts:** Each task owns exclusive write boundaries; tasks T1–T4 can run in parallel.
+
 ---
 
 ## 2. Canonical Shared Types (`src/types.ts`)
@@ -143,8 +167,8 @@ export interface TerrainData {
 export interface PlayerInput {
   steer: number;          // -1.0 (left) to +1.0 (right)
   carve: number;          // 0.0 (none) to 1.0 (hard braking/carving)
-  tuck: boolean;          // true when leaning forward for speed (W / ArrowUp)
-  jump: boolean;          // true when jump triggered (Space)
+  tuck: boolean;          // true when leaning forward for speed (W / ArrowUp); mid-air = grab A
+  jumpHeld: boolean;      // true while Space (or gamepad A) is held down (continuous hold, not edge-triggered) — ADR-0008
   reset: boolean;         // true when reset to drop-zone requested (R)
 }
 
@@ -165,6 +189,13 @@ export interface PlayerState {
   altitudeMeters: number;   // Real-world equivalent altitude for HUD
   distanceTraveledMeters: number;
   activeDropZoneId: string;
+  // ---- Iteration 3 charge-jump & trick fields (ADR-0008) ----
+  jumpCharge: number;       // 0.0 to 1.0 charge accumulated while jumpHeld + grounded; reset on release/launch/crash
+  spinRad: number;          // Accumulated mid-air spin yaw in radians (independent of headingRad); steer=+1 (D) decrements
+                            // (clockwise/screen-right, ADR-0006 sign convention); reset on touchdown
+  stanceRad: number;        // Persistent visual yaw offset: 0 = normal stance, π = switch/goofy; absorbs nearest-π
+                            // multiple of spinRad on clean landing (mod 2π); reset on wipeout/forceCrash/reset. Visual-only.
+  activeGrab: 'none' | 'A' | 'B'; // Mid-air grab pose: 'A' = indy/method (W), 'B' = melon/tail (S), 'none' = not grabbing
 }
 
 export interface AudioState {
@@ -190,13 +221,13 @@ export interface CameraState {
 export interface GameConfig {
   mountainName: string;
   region: string;
-  gravity: number;
+  gravity: number;                      // CHANGED (Iteration 3): lowered from 22.0 to 14.0 m/s² (realistic gravity)
   maxSpeedKmh: number;
   steerRateRadPerSec: number;
   carveDragCoefficient: number;
   airDragCoefficient: number;
   baseSlopeFriction: number;
-  jumpImpulse: number;
+  jumpImpulse: number;                  // DEPRECATED (Iteration 3): replaced by jumpMinImpulse/jumpMaxImpulse
   crashSpeedThresholdKmh: number;
   crashRecoverySeconds: number;
   audioBpm: number;
@@ -209,6 +240,13 @@ export interface GameConfig {
   cameraMaxFov: number;
   dropZones: DropZone[];
   attribution?: string[];  // Iteration 2: terrain data attribution (rendered in HUD footer)
+  // ---- Iteration 3 NEW charge-jump & trick config fields (ADR-0008) ----
+  jumpChargeMaxSeconds: number;         // duration to charge from 0.0 to 1.0 (e.g. 0.5 s)
+  jumpMinImpulse: number;               // vertical impulse for minimal tap (e.g. 4.5 m/s)
+  jumpMaxImpulse: number;               // vertical impulse for full charge (e.g. 14.0 m/s)
+  crouchSteerRateMultiplier: number;    // effective steering rate while jumpCharge > 0 (e.g. 0.4 = 40% of normal)
+  spinRateRadPerSec: number;            // spin accumulation rate while airborne (e.g. 3.0 rad/s)
+  landAlignmentToleranceRad: number;    // tolerance for clean trick landing vs crash (e.g. π/3 = 60°)
 }
 
 export interface OGSnowGlobalState {
@@ -578,7 +616,7 @@ export class PhysicsEngine {
 3. Steering (`input.steer`): Because `FollowCamera` sits behind the player looking toward `+Z` with world up `+Y`, camera right in Three.js right-handed coordinates is world `-X`. Therefore `steer = +1` (`ArrowRight`/`KeyD`) MUST decrement `headingRad` (`headingRad -= input.steer * config.steerRateRadPerSec * dt`) to turn toward world `-X` (screen right, `NDC x > 0`), and `rollRad` leans into the turn (`rollRad = -input.steer * 0.35`).
 4. Carving (`input.carve` or sharp steering angular delta) increases `carveAngleRad` and `carveIntensity`, applying lateral edge grip and linear speed deceleration (`carveDragCoefficient * carveIntensity * speedMs`).
 5. Tucking (`input.tuck`) reduces aerodynamic drag and increases downhill acceleration.
-6. Jumping (`input.jump` while `isGrounded === true` and `!isCrashed`) is **edge-triggered** (rising edge only) and imparts upward vertical velocity (`config.jumpImpulse`), transitioning `isGrounded` to `false` and accumulating `airtimeSeconds`.
+6. Jumping uses `input.jumpHeld` **exclusively** (ADR-0008): while `input.jumpHeld === true` and `isGrounded === true` and `!isCrashed`, `jumpCharge` accumulates at `dt / config.jumpChargeMaxSeconds` (clamped `[0, 1]`); on release (`jumpHeld` true→false) with `jumpCharge > 0`, the rider launches with impulse `config.jumpMinImpulse + jumpCharge * (config.jumpMaxImpulse - config.jumpMinImpulse)`, transitions `isGrounded` to `false`, and accumulates `airtimeSeconds`. There is no legacy rising-edge `jump` field.
 7. Obstacle collision (`terrain.checkObstacleCollision(position, 1.1)`):
    - Always pushes the rider radially outside `obs.radius + 1.1`.
    - Below `config.crashSpeedThresholdKmh` (`28 km/h`), deflects velocity along the contact normal without triggering a wipeout (`isCrashed` remains `false`).
@@ -601,7 +639,7 @@ export class PlayerController {
   public dispose(): void;
 }
 ```
-- Maps `KeyA` / `ArrowLeft` (`steer = -1`), `KeyD` / `ArrowRight` (`steer = +1`), `KeyS` / `ArrowDown` (`carve = 1.0`), `KeyW` / `ArrowUp` (`tuck = true`), `Space` (`jump = true`), `KeyR` (`reset = true`), calling `e.preventDefault()` on game control keys so `Space` or arrow keys never scroll or activate focused DOM buttons.
+- Maps `KeyA` / `ArrowLeft` (`steer = -1`), `KeyD` / `ArrowRight` (`steer = +1`), `KeyS` / `ArrowDown` (`carve = 1.0`), `KeyW` / `ArrowUp` (`tuck = true`), `Space` / gamepad `A` (`jumpHeld = true` while held), `KeyR` (`reset = true`), calling `e.preventDefault()` on game control keys so `Space` or arrow keys never scroll or activate focused DOM buttons. `getInput()` sets `jumpHeld` only; no legacy rising-edge `jump` field is produced.
 
 **`src/player/SnowboardCharacter.ts`:**
 ```typescript

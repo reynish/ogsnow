@@ -3,8 +3,11 @@ import { PlayerInput } from '../types';
 export class PlayerController {
   private target: Window | HTMLElement | null = null;
   private keyStates: Map<string, boolean> = new Map();
+  // Latches a Space key-down until getInput() has reported it once, so a tap
+  // whose keydown+keyup both fall between two frames still yields one frame of
+  // jumpHeld = true (README §8.1 — "input is never dead").
+  private pendingJumpPress = false;
   private override: Partial<PlayerInput> | null = null;
-  private spaceJumpConsumed: boolean = false;
   private onKeyDownBound: (e: KeyboardEvent) => void;
   private onKeyUpBound: (e: KeyboardEvent) => void;
   private onBlurBound: () => void;
@@ -43,18 +46,16 @@ export class PlayerController {
 
     const tuck = this.isPressed('KeyW') || this.isPressed('ArrowUp');
 
-    // [PR-1 M1/M2: Edge-triggered Space jump prevents bunny-hop repeat while holding key]
-    let jump = false;
-    if (this.isPressed('Space')) {
-      if (!this.spaceJumpConsumed) {
-        jump = true;
-        this.spaceJumpConsumed = true;
-      }
-    }
+    // jumpHeld: single continuous hold signal — true while Space is held; a
+    // latched sub-frame Space tap additionally reports true for exactly one
+    // frame (README §8.1). Gamepad A is folded in below via the single poll.
+    const jumpHeld = this.isPressed('Space') || this.pendingJumpPress;
+    // The latched tap has now been observed (reported) for this frame.
+    this.pendingJumpPress = false;
 
     const reset = this.isPressed('KeyR');
 
-    let input: PlayerInput = { steer, carve, tuck, jump, reset };
+    let input: PlayerInput = { steer, carve, tuck, jumpHeld, reset };
 
     // 2. Poll Gamepad API if available
     const gamepadInput = this.pollGamepad();
@@ -68,8 +69,8 @@ export class PlayerController {
       if (gamepadInput.tuck) {
         input.tuck = true;
       }
-      if (gamepadInput.jump) {
-        input.jump = true;
+      if (gamepadInput.jumpHeld) {
+        input.jumpHeld = true;
       }
       if (gamepadInput.reset) {
         input.reset = true;
@@ -82,7 +83,7 @@ export class PlayerController {
         steer: this.override.steer !== undefined ? this.override.steer : input.steer,
         carve: this.override.carve !== undefined ? this.override.carve : input.carve,
         tuck: this.override.tuck !== undefined ? this.override.tuck : input.tuck,
-        jump: this.override.jump !== undefined ? this.override.jump : input.jump,
+        jumpHeld: this.override.jumpHeld !== undefined ? this.override.jumpHeld : input.jumpHeld,
         reset: this.override.reset !== undefined ? this.override.reset : input.reset,
       };
     }
@@ -108,7 +109,7 @@ export class PlayerController {
       this.target.removeEventListener('blur', this.onBlurBound as EventListener);
     }
     this.keyStates.clear();
-    this.spaceJumpConsumed = false;
+    this.pendingJumpPress = false;
     this.override = null;
     this.target = null;
   }
@@ -128,24 +129,20 @@ export class PlayerController {
     }
 
     if (e.code === 'Space') {
-      if (!this.isPressed('Space')) {
-        this.spaceJumpConsumed = false;
-      }
+      // Latch every Space key-down so a sub-frame tap survives until sampled.
+      this.pendingJumpPress = true;
     }
 
     this.keyStates.set(e.code, true);
   }
 
   private handleKeyUp(e: KeyboardEvent): void {
-    if (e.code === 'Space') {
-      this.spaceJumpConsumed = false;
-    }
     this.keyStates.set(e.code, false);
   }
 
   private handleBlur(): void {
     this.keyStates.clear();
-    this.spaceJumpConsumed = false;
+    this.pendingJumpPress = false;
   }
 
   private isPressed(code: string): boolean {
@@ -197,14 +194,14 @@ export class PlayerController {
       if (gp.buttons && gp.buttons[12]?.pressed) tuck = true;
       if (gp.axes && gp.axes.length > 1 && gp.axes[1] < -0.5) tuck = true;
 
-      // Jump: Button A (button 0)
-      const jump = gp.buttons && gp.buttons[0]?.pressed === true;
+      // Jump (charge-jump): Button A (button 0) maps to continuous jumpHeld
+      const jumpHeld = gp.buttons && gp.buttons[0]?.pressed === true;
 
       // Reset: Button Y (button 3) or Select / Back (button 8)
       const reset =
         gp.buttons && (gp.buttons[3]?.pressed === true || gp.buttons[8]?.pressed === true);
 
-      return { steer, carve, tuck, jump, reset };
+      return { steer, carve, tuck, jumpHeld, reset };
     }
 
     return null;

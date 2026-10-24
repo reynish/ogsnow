@@ -119,6 +119,9 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     const attributionEl = page.locator('[data-testid="terrain-attribution"]');
     await expect(attributionEl).toBeVisible();
     await expect(attributionEl).toContainText('AWS Open Data');
+
+    // T4/ADR-0008: controls legend is hidden while in the menu.
+    await expect(page.locator('[data-testid="controls-legend"]')).toBeHidden();
   });
 
   test('2. Drop zone selection transitions mode to riding, loads GLB terrain, and shows HUD', async ({
@@ -142,6 +145,9 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     // Verify HUD elements are visible and displaying telemetry
     const hudOverlay = page.locator('#hud-overlay');
     await expect(hudOverlay).toBeVisible();
+
+    // T4/ADR-0008: controls legend is visible while riding (no score/combo display).
+    await expect(page.locator('[data-testid="controls-legend"]')).toBeVisible();
 
     const speedEl = page.locator('[data-testid="hud-speed"]');
     const altitudeEl = page.locator('[data-testid="hud-altitude"]');
@@ -437,5 +443,175 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     await muteBtn.click();
     state = await page.evaluate(() => window.__OGSNOW_STATE__);
     expect(state.audio.isMuted).toBe(false);
+  });
+
+  test('8. Charge-jump: hold Space to charge, release to launch, and jumpCharge resets (ADR-0008)', async ({
+    page,
+  }) => {
+    // Drop in at summit and pause live rAF for deterministic stepping.
+    await page.locator('[data-testid="drop-zone-btn-summit-express"]').click();
+    await page.waitForFunction(() => window.__OGSNOW_STATE__.mode === 'riding');
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(true);
+    });
+
+    // Controls legend must be visible while riding.
+    await expect(page.locator('[data-testid="controls-legend"]')).toBeVisible();
+
+    // 1. Charge: hold jumpHeld for jumpChargeMaxSeconds (0.5s = 10 steps @ 0.05s).
+    await page.evaluate(() => {
+      for (let i = 0; i < 10; i++) {
+        window.__OGSNOW_APP__?.stepSimulation(0.05, { jumpHeld: true });
+      }
+    });
+
+    let state = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(state.jumpCharge).toBeCloseTo(1.0, 1);
+    // Holding a charge must NOT launch the rider; release is required.
+    expect(state.isGrounded).toBe(true);
+
+    // 2. Release to launch.
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.stepSimulation(0.05, { jumpHeld: false });
+    });
+
+    state = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(state.isGrounded).toBe(false);
+    expect(state.jumpCharge).toBe(0);
+    // A full charge should produce a floaty jump, not a tiny tap.
+    expect(state.velocity.y).toBeGreaterThan(10);
+
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(false);
+    });
+  });
+
+  test('9. Trick landing: mid-rotation spin crashes and aligned spin lands clean (ADR-0008)', async ({
+    page,
+  }) => {
+    await page.locator('[data-testid="drop-zone-btn-summit-express"]').click();
+    await page.waitForFunction(() => window.__OGSNOW_STATE__.mode === 'riding');
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(true);
+    });
+
+    // Full-charge launch helper (charge 0.5s, then release).
+    // Returns headingRad captured IMMEDIATELY after launch (the takeoff value).
+    // Owner PR-4 comment: while airborne headingRad must remain FROZEN at this
+    // value — A/D only accumulates spinRad — so the follow camera stays locked
+    // behind the direction of travel.
+    const launchFullCharge = async (): Promise<number> => {
+      await page.evaluate(() => {
+        for (let i = 0; i < 10; i++) {
+          window.__OGSNOW_APP__?.stepSimulation(0.05, { jumpHeld: true });
+        }
+        window.__OGSNOW_APP__?.stepSimulation(0.016, { jumpHeld: false });
+      });
+      const s = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+      expect(s.isGrounded).toBe(false);
+      return s.headingRad;
+    };
+
+    // Asserts the airborne camera never swings laterally while the rider spins:
+    // with heading frozen the camera target sits at player.x (heading = 0 at
+    // launch, travel is straight +Z), so |camX - playerX| stays ~0 (smoothing
+    // lag only). Under the removed air-steering defect this drifted by metres.
+    const maxAirborneCameraLateralDrift = async (steps: number): Promise<number> => {
+      return page.evaluate((n) => {
+        let maxDrift = 0;
+        for (let i = 0; i < n; i++) {
+          window.__OGSNOW_APP__?.stepSimulation(0.05, { steer: 1.0 });
+          const s = window.__OGSNOW_STATE__;
+          maxDrift = Math.max(
+            maxDrift,
+            Math.abs(s.camera.position.x - s.player.position.x),
+            Math.abs(s.camera.lookAt.x - s.player.position.x)
+          );
+        }
+        return maxDrift;
+      }, steps);
+    };
+
+    // ── Case A: spin ~0.55s (~1.65 rad) then stop and land mid-rotation -> crash ──
+    const headingAtLaunchA = await launchFullCharge();
+    const camDriftA = await maxAirborneCameraLateralDrift(11);
+
+    const airMid = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(airMid.isGrounded).toBe(false);
+    // Round 2 (ADR-0008 amendment): steer=+1 (D) now DECREMENTS spinRad —
+    // clockwise / screen-right, matching the ground steering convention.
+    expect(airMid.spinRad).toBeGreaterThan(-2.1);
+    expect(airMid.spinRad).toBeLessThan(-1.2);
+    // Owner PR-4 comment: spinning must NOT yaw the travel heading or swing the
+    // follow camera — heading stays frozen and the camera stays behind travel.
+    expect(Math.abs(airMid.headingRad - headingAtLaunchA)).toBeLessThanOrEqual(1e-9);
+    expect(camDriftA).toBeLessThan(1.0);
+
+    // Freeze the spin and wait for touchdown while keeping the rider neutral.
+    await page.evaluate(() => {
+      for (let i = 0; i < 80; i++) {
+        if (window.__OGSNOW_STATE__.player.isGrounded) break;
+        window.__OGSNOW_APP__?.stepSimulation(0.05, {});
+      }
+    });
+
+    const midLanding = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(midLanding.isGrounded).toBe(true);
+    expect(midLanding.isCrashed).toBe(true);
+    // Round 2: a mid-rotation crash wipes out to normal stance (no switch).
+    expect(midLanding.stanceRad).toBe(0);
+    // Air spin input never yawed the travel heading: identical at touchdown.
+    expect(Math.abs(midLanding.headingRad - headingAtLaunchA)).toBeLessThanOrEqual(1e-9);
+
+    // ── Case B: spin to ~180 deg (3.15 rad) then stop and land aligned -> clean ──
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.stepSimulation(0.05, { reset: true });
+    });
+    // Round 2: reset returns the rider to normal stance.
+    expect(
+      (await page.evaluate(() => window.__OGSNOW_STATE__.player)).stanceRad
+    ).toBe(0);
+    const headingAtLaunchB = await launchFullCharge();
+    const camDriftB = await maxAirborneCameraLateralDrift(21);
+
+    const airAligned = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(airAligned.isGrounded).toBe(false);
+    // Round 2 sign flip: ~180 deg of steer=+1 spin is now near -PI.
+    expect(airAligned.spinRad).toBeGreaterThan(-Math.PI - 0.2);
+    expect(airAligned.spinRad).toBeLessThan(-Math.PI + 0.2);
+    // Same owner-comment invariant in the clean-landing case.
+    expect(Math.abs(airAligned.headingRad - headingAtLaunchB)).toBeLessThanOrEqual(1e-9);
+    expect(camDriftB).toBeLessThan(1.0);
+
+    await page.evaluate(() => {
+      for (let i = 0; i < 80; i++) {
+        if (window.__OGSNOW_STATE__.player.isGrounded) break;
+        window.__OGSNOW_APP__?.stepSimulation(0.05, {});
+      }
+    });
+
+    const cleanLanding = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(cleanLanding.isGrounded).toBe(true);
+    expect(cleanLanding.isCrashed).toBe(false);
+    expect(cleanLanding.spinRad).toBe(0);
+    // Round 2: a clean 180 landing persists as switch stance (stanceRad = PI),
+    // it must NOT ease back to normal.
+    expect(cleanLanding.stanceRad).toBeCloseTo(Math.PI, 1);
+    // Air spin input never yawed the travel heading: identical at touchdown.
+    expect(Math.abs(cleanLanding.headingRad - headingAtLaunchB)).toBeLessThanOrEqual(1e-9);
+
+    // Step grounded frames: the switch-stance offset must persist, not ease to 0.
+    await page.evaluate(() => {
+      for (let i = 0; i < 10; i++) {
+        window.__OGSNOW_APP__?.stepSimulation(0.05, {});
+      }
+    });
+    const stanceAfterGrounded = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(stanceAfterGrounded.isGrounded).toBe(true);
+    expect(stanceAfterGrounded.stanceRad).toBeCloseTo(Math.PI, 1);
+
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(false);
+    });
   });
 });
