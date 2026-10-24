@@ -408,9 +408,11 @@ describe('Physics, Character & Camera (Task 2)', () => {
 
       const state = physics.getState();
       expect(state.isGrounded).toBe(false);
+      // steer = +1 (D) DECREMENTS spinRad (ADR-0006-consistent sign: clockwise /
+      // screen-right from the chase camera, matching a ground D-turn).
       // ~3.0 rad/s * ~1.0s. Allow a small integration margin.
-      expect(state.spinRad).toBeGreaterThan(2.5);
-      expect(state.spinRad).toBeLessThan(3.5);
+      expect(state.spinRad).toBeLessThan(-2.5);
+      expect(state.spinRad).toBeGreaterThan(-3.5);
     });
 
     it('freezes headingRad while airborne; A/D accumulates only spinRad at spinRateRadPerSec', () => {
@@ -437,9 +439,11 @@ describe('Physics, Character & Camera (Task 2)', () => {
       // takeoff value while airborne (exact equality — the frozen branch performs
       // no mutation); A/D drives spinRad only.
       expect(state.headingRad).toBe(frozenHeading);
-      // ~spinRateRadPerSec (3.0 rad/s) over ~1.0s. Allow a small integration margin.
-      expect(state.spinRad).toBeGreaterThan(2.5);
-      expect(state.spinRad).toBeLessThan(3.5);
+      // ~spinRateRadPerSec (3.0 rad/s) over ~1.0s, negative for steer = +1 (D spins
+      // clockwise/screen-right, matching the ground steering convention).
+      // Allow a small integration margin.
+      expect(state.spinRad).toBeLessThan(-2.5);
+      expect(state.spinRad).toBeGreaterThan(-3.5);
     });
 
     it('does not bank rollRad from A/D while airborne (roll target decays toward 0 in the air)', () => {
@@ -459,8 +463,8 @@ describe('Physics, Character & Camera (Task 2)', () => {
 
       // A/D in the air is a trick-spin input only; it must not bank the rider.
       expect(Math.abs(physics.getState().rollRad)).toBeLessThan(0.02);
-      // Spin still accumulated normally during the same window.
-      expect(physics.getState().spinRad).toBeGreaterThan(1.0);
+      // Spin still accumulated normally during the same window (negative for steer=+1).
+      expect(physics.getState().spinRad).toBeLessThan(-1.0);
     });
 
     it('keeps the follow camera locked behind the travel direction while spinning in the air (owner PR-4 comment)', () => {
@@ -493,7 +497,7 @@ describe('Physics, Character & Camera (Task 2)', () => {
       }
 
       // The rider actually spun during the window (trick input was live).
-      expect(physics.getState().spinRad).toBeGreaterThan(1.0);
+      expect(physics.getState().spinRad).toBeLessThan(-1.0);
     });
 
     it('sets activeGrab = A on tuck while airborne and releases to none (no latching)', () => {
@@ -530,6 +534,40 @@ describe('Physics, Character & Camera (Task 2)', () => {
 
       physics.step(0.05, neutralInput);
       expect(physics.getState().activeGrab).toBe('none');
+    });
+
+    it('spin sign convention matches ground steering: steer=+1 (D) decrements spinRad, steer=-1 (A) increments it (ADR-0006)', () => {
+      const dropZone = terrain.terrainData.dropZones[0];
+      const chargeSteps = Math.ceil(DEFAULT_GAME_CONFIG.jumpChargeMaxSeconds / 0.05);
+
+      const launchAndSpin = (steer: number): number => {
+        physics.resetAtDropZone(dropZone);
+        for (let i = 0; i < chargeSteps; i++) {
+          physics.step(0.05, { ...neutralInput, jumpHeld: true });
+        }
+        physics.step(0.016, { ...neutralInput, jumpHeld: false });
+        expect(physics.getState().isGrounded).toBe(false);
+
+        for (let i = 0; i < 20; i++) {
+          physics.step(0.05, { ...neutralInput, steer });
+        }
+        expect(physics.getState().isGrounded).toBe(false);
+        return physics.getState().spinRad;
+      };
+
+      // D (steer=+1): spinRad goes NEGATIVE — nose yaws toward world -X = screen-right
+      // (clockwise from the chase camera), matching a ground D-turn.
+      const spinRight = launchAndSpin(1.0);
+      expect(spinRight).toBeLessThan(0);
+      expect(Math.abs(spinRight)).toBeGreaterThan(2.5);
+      expect(Math.abs(spinRight)).toBeLessThan(3.5);
+      expect(Math.abs(spinRight)).toBeCloseTo(DEFAULT_GAME_CONFIG.spinRateRadPerSec * 1.0, 0);
+
+      // A (steer=-1): spinRad goes POSITIVE — screen-left / counterclockwise.
+      const spinLeft = launchAndSpin(-1.0);
+      expect(spinLeft).toBeGreaterThan(0);
+      expect(Math.abs(spinLeft)).toBeGreaterThan(2.5);
+      expect(Math.abs(spinLeft)).toBeLessThan(3.5);
     });
   });
 
@@ -578,6 +616,8 @@ describe('Physics, Character & Camera (Task 2)', () => {
       expect(landState.isCrashed).toBe(false);
       expect(landState.spinRad).toBe(0);
       expect(landState.activeGrab).toBe('none');
+      // A clean 180 persists as switch stance (nearest-π multiple absorbed).
+      expect(landState.stanceRad).toBeCloseTo(Math.PI, 5);
     });
 
     it('crashes when landing while still holding a grab, even if rotation is aligned', () => {
@@ -613,6 +653,103 @@ describe('Physics, Character & Camera (Task 2)', () => {
       expect(landState.isCrashed).toBe(false);
       expect(landState.spinRad).toBe(0);
       expect(landState.activeGrab).toBe('none');
+      // Neutral landing keeps the normal stance.
+      expect(landState.stanceRad).toBe(0);
+    });
+
+    it('keeps stance normal when landing a clean 360 (spinRad = 2*pi absorbs to stanceRad 0)', () => {
+      launchFullCharge();
+
+      // A full 360-degree (2*pi) rotation returns the rider to the original stance.
+      (physics as any).state.spinRad = 2 * Math.PI;
+
+      let guard = 0;
+      while (!physics.getState().isGrounded && guard++ < 200) {
+        physics.step(0.05, neutralInput);
+      }
+
+      const landState = physics.getState();
+      expect(landState.isGrounded).toBe(true);
+      expect(landState.isCrashed).toBe(false);
+      expect(landState.spinRad).toBe(0);
+      // (0 + 2*pi) mod 2*pi = 0 — stance stays normal, no drift to 2*pi.
+      expect(landState.stanceRad).toBe(0);
+    });
+
+    it('returns to normal stance after landing a second clean 180 while riding switch (pi + pi = 0 mod 2*pi)', () => {
+      // First jump: land a clean 180 -> switch stance (pi).
+      launchFullCharge();
+      (physics as any).state.spinRad = Math.PI;
+      let guard = 0;
+      while (!physics.getState().isGrounded && guard++ < 200) {
+        physics.step(0.05, neutralInput);
+      }
+      expect(physics.getState().isCrashed).toBe(false);
+      expect(physics.getState().stanceRad).toBeCloseTo(Math.PI, 5);
+
+      // Second jump from the current grounded position (NOT resetAtDropZone,
+      // which would zero stanceRad): charge, launch, land another clean 180.
+      const chargeSteps = Math.ceil(DEFAULT_GAME_CONFIG.jumpChargeMaxSeconds / 0.05);
+      for (let i = 0; i < chargeSteps; i++) {
+        physics.step(0.05, { ...neutralInput, jumpHeld: true });
+      }
+      physics.step(0.016, { ...neutralInput, jumpHeld: false });
+      expect(physics.getState().isGrounded).toBe(false);
+      // Stance persists through takeoff; spinRad restarts from 0.
+      expect(physics.getState().stanceRad).toBeCloseTo(Math.PI, 5);
+      expect(physics.getState().spinRad).toBe(0);
+
+      (physics as any).state.spinRad = Math.PI;
+      guard = 0;
+      while (!physics.getState().isGrounded && guard++ < 200) {
+        physics.step(0.05, neutralInput);
+      }
+
+      const landState = physics.getState();
+      expect(landState.isGrounded).toBe(true);
+      expect(landState.isCrashed).toBe(false);
+      // (pi + pi) mod 2*pi = 0 — back to normal stance.
+      expect(landState.stanceRad).toBe(0);
+    });
+
+    it('resets stanceRad to 0 on forceCrash() and resetAtDropZone()', () => {
+      // Land switch first.
+      launchFullCharge();
+      (physics as any).state.spinRad = Math.PI;
+      let guard = 0;
+      while (!physics.getState().isGrounded && guard++ < 200) {
+        physics.step(0.05, neutralInput);
+      }
+      expect(physics.getState().stanceRad).toBeCloseTo(Math.PI, 5);
+
+      // forceCrash() resets stance to normal.
+      physics.forceCrash();
+      expect(physics.getState().stanceRad).toBe(0);
+
+      // Wait out crash recovery (controls are inert while crashed).
+      guard = 0;
+      while (physics.getState().isCrashed && guard++ < 200) {
+        physics.step(0.05, neutralInput);
+      }
+      expect(physics.getState().isCrashed).toBe(false);
+
+      // Land switch again, then resetAtDropZone() resets stance to normal.
+      const chargeSteps = Math.ceil(DEFAULT_GAME_CONFIG.jumpChargeMaxSeconds / 0.05);
+      for (let i = 0; i < chargeSteps; i++) {
+        physics.step(0.05, { ...neutralInput, jumpHeld: true });
+      }
+      physics.step(0.016, { ...neutralInput, jumpHeld: false });
+      expect(physics.getState().isGrounded).toBe(false);
+      (physics as any).state.spinRad = Math.PI;
+      guard = 0;
+      while (!physics.getState().isGrounded && guard++ < 200) {
+        physics.step(0.05, neutralInput);
+      }
+      expect(physics.getState().isCrashed).toBe(false);
+      expect(physics.getState().stanceRad).toBeCloseTo(Math.PI, 5);
+
+      const resetState = physics.resetAtDropZone(terrain.terrainData.dropZones[0]);
+      expect(resetState.stanceRad).toBe(0);
     });
   });
 

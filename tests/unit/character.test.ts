@@ -23,6 +23,7 @@ function createMockPlayerState(overrides: Partial<PlayerState> = {}): PlayerStat
     activeDropZoneId: 'test',
     jumpCharge: 0,
     spinRad: 0,
+    stanceRad: 0,
     activeGrab: 'none',
     ...overrides,
   };
@@ -97,15 +98,55 @@ describe('SnowboardCharacter Pose Interpolation (ADR-0008)', () => {
     expect(character.riderGroup.rotation.y).toBeCloseTo(Math.PI / 2, 3);
   });
 
-  it('eases the spin yaw back to neutral once grounded', () => {
+  it('eases the spin yaw back to the persistent stance yaw once grounded (stanceRad = 0 -> neutral)', () => {
     character.update(createMockPlayerState({ isGrounded: false, spinRad: Math.PI }), 0.05);
     expect(character.riderGroup.rotation.y).toBeCloseTo(Math.PI, 3);
 
-    // Grounded update clears spinRad in state and eases rotation back toward 0.
+    // Grounded update clears spinRad in state and eases rotation toward stanceRad (0 here).
     for (let i = 0; i < 20; i++) {
-      character.update(createMockPlayerState({ isGrounded: true, spinRad: 0 }), 0.05);
+      character.update(createMockPlayerState({ isGrounded: true, spinRad: 0, stanceRad: 0 }), 0.05);
     }
-    expect(character.riderGroup.rotation.y).toBeCloseTo(0, 2);
+    // Shortest-path ease converges on stance 0 modulo 2*pi (the representative may be 2*pi).
+    const wrapped =
+      ((character.riderGroup.rotation.y % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    expect(Math.min(wrapped, 2 * Math.PI - wrapped)).toBeLessThan(0.01);
+  });
+
+  it('persists switch stance while grounded: eases toward stanceRad = pi instead of unwinding to 0', () => {
+    // Land a 180: last airborne frame renders stanceRad(0) + spinRad(pi), then the
+    // grounded ease must converge on the NEW stance target (pi), not 0.
+    character.update(createMockPlayerState({ isGrounded: false, stanceRad: 0, spinRad: Math.PI }), 0.05);
+    expect(character.riderGroup.rotation.y).toBeCloseTo(Math.PI, 3);
+
+    for (let i = 0; i < 20; i++) {
+      character.update(createMockPlayerState({ isGrounded: true, stanceRad: Math.PI, spinRad: 0 }), 0.05);
+    }
+    expect(character.riderGroup.rotation.y).toBeCloseTo(Math.PI, 2);
+  });
+
+  it('applies airborne yaw as stanceRad + spinRad (spin starts from the persistent stance)', () => {
+    character.update(
+      createMockPlayerState({ isGrounded: false, stanceRad: Math.PI, spinRad: Math.PI / 2 }),
+      0.05
+    );
+    expect(character.riderGroup.rotation.y).toBeCloseTo((3 * Math.PI) / 2, 3);
+  });
+
+  it('uses the shortest path when easing to the stance yaw (no full unwind after a landed 360)', () => {
+    // Simulate the last airborne frame of a clean 360: visual yaw ~2*pi while the
+    // persisted stance target is 0 (mod 2*pi). The shortest-path ease must decay
+    // the residual near 2*pi -> 0, NOT rotate backwards through pi.
+    character.update(
+      createMockPlayerState({ isGrounded: false, stanceRad: 0, spinRad: 2 * Math.PI }),
+      0.05
+    );
+    expect(character.riderGroup.rotation.y).toBeCloseTo(2 * Math.PI, 3);
+
+    for (let i = 0; i < 40; i++) {
+      character.update(createMockPlayerState({ isGrounded: true, stanceRad: 0, spinRad: 0 }), 0.05);
+    }
+    // Converged to the 2*pi representative of stance 0 (equivalent to 0 mod 2*pi).
+    expect(character.riderGroup.rotation.y).toBeCloseTo(2 * Math.PI, 1);
   });
 
   it('poses grab A on the front arm, grab B on the back arm, and neutral arms when none', () => {

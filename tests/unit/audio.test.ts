@@ -23,6 +23,7 @@ function createMockPlayerState(overrides: Partial<PlayerState> = {}): PlayerStat
     activeDropZoneId: 'summit-express',
     jumpCharge: 0,
     spinRad: 0,
+    stanceRad: 0,
     activeGrab: 'none',
     ...overrides,
   };

@@ -538,8 +538,10 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
 
     const airMid = await page.evaluate(() => window.__OGSNOW_STATE__.player);
     expect(airMid.isGrounded).toBe(false);
-    expect(airMid.spinRad).toBeGreaterThan(1.2);
-    expect(airMid.spinRad).toBeLessThan(2.1);
+    // Round 2 (ADR-0008 amendment): steer=+1 (D) now DECREMENTS spinRad —
+    // clockwise / screen-right, matching the ground steering convention.
+    expect(airMid.spinRad).toBeGreaterThan(-2.1);
+    expect(airMid.spinRad).toBeLessThan(-1.2);
     // Owner PR-4 comment: spinning must NOT yaw the travel heading or swing the
     // follow camera — heading stays frozen and the camera stays behind travel.
     expect(Math.abs(airMid.headingRad - headingAtLaunchA)).toBeLessThanOrEqual(1e-9);
@@ -556,6 +558,8 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     const midLanding = await page.evaluate(() => window.__OGSNOW_STATE__.player);
     expect(midLanding.isGrounded).toBe(true);
     expect(midLanding.isCrashed).toBe(true);
+    // Round 2: a mid-rotation crash wipes out to normal stance (no switch).
+    expect(midLanding.stanceRad).toBe(0);
     // Air spin input never yawed the travel heading: identical at touchdown.
     expect(Math.abs(midLanding.headingRad - headingAtLaunchA)).toBeLessThanOrEqual(1e-9);
 
@@ -563,13 +567,18 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     await page.evaluate(() => {
       window.__OGSNOW_APP__?.stepSimulation(0.05, { reset: true });
     });
+    // Round 2: reset returns the rider to normal stance.
+    expect(
+      (await page.evaluate(() => window.__OGSNOW_STATE__.player)).stanceRad
+    ).toBe(0);
     const headingAtLaunchB = await launchFullCharge();
     const camDriftB = await maxAirborneCameraLateralDrift(21);
 
     const airAligned = await page.evaluate(() => window.__OGSNOW_STATE__.player);
     expect(airAligned.isGrounded).toBe(false);
-    expect(airAligned.spinRad).toBeGreaterThan(Math.PI - 0.2);
-    expect(airAligned.spinRad).toBeLessThan(Math.PI + 0.2);
+    // Round 2 sign flip: ~180 deg of steer=+1 spin is now near -PI.
+    expect(airAligned.spinRad).toBeGreaterThan(-Math.PI - 0.2);
+    expect(airAligned.spinRad).toBeLessThan(-Math.PI + 0.2);
     // Same owner-comment invariant in the clean-landing case.
     expect(Math.abs(airAligned.headingRad - headingAtLaunchB)).toBeLessThanOrEqual(1e-9);
     expect(camDriftB).toBeLessThan(1.0);
@@ -585,8 +594,21 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     expect(cleanLanding.isGrounded).toBe(true);
     expect(cleanLanding.isCrashed).toBe(false);
     expect(cleanLanding.spinRad).toBe(0);
+    // Round 2: a clean 180 landing persists as switch stance (stanceRad = PI),
+    // it must NOT ease back to normal.
+    expect(cleanLanding.stanceRad).toBeCloseTo(Math.PI, 1);
     // Air spin input never yawed the travel heading: identical at touchdown.
     expect(Math.abs(cleanLanding.headingRad - headingAtLaunchB)).toBeLessThanOrEqual(1e-9);
+
+    // Step grounded frames: the switch-stance offset must persist, not ease to 0.
+    await page.evaluate(() => {
+      for (let i = 0; i < 10; i++) {
+        window.__OGSNOW_APP__?.stepSimulation(0.05, {});
+      }
+    });
+    const stanceAfterGrounded = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(stanceAfterGrounded.isGrounded).toBe(true);
+    expect(stanceAfterGrounded.stanceRad).toBeCloseTo(Math.PI, 1);
 
     await page.evaluate(() => {
       window.__OGSNOW_APP__?.setPaused?.(false);
