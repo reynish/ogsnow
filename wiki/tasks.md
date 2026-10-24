@@ -206,6 +206,8 @@ if (input.tuck && this.state.activeGrab === 'none') {
 }
 ```
 
+> **Amendment (round-2, 2026-10-24):** this historical task spec predates the ADR-0008 round-2 amendment — the airborne spin accumulation sign is now `-=` (`steer = +1`/D decrements `spinRad`, clockwise/screen-right), and a clean landing absorbs the nearest `180°` multiple of `spinRad` into a persistent visual `stanceRad` (switch stance; zeroed on crash/reset). See ADR-0008 round-2 amendment; history is not rewritten here.
+
 **Notes:**
 - `spinRad` is unbounded; it accumulates continuously while steering airborne.
 - Slope acceleration is **disabled** while airborne (existing behavior retained).

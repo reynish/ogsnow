@@ -87,7 +87,7 @@ real-life-steep/
 
 | File | New / Changed | Owner Sub-Agent |
 | :--- | :--- | :--- |
-| `src/types.ts` | Changed (add `jumpHeld`, `jumpCharge`, `spinRad`, `activeGrab`, new config fields) | T1 |
+| `src/types.ts` | Changed (add `jumpHeld`, `jumpCharge`, `spinRad`, `stanceRad`, `activeGrab`, new config fields) | T1 |
 | `src/config.ts` | Changed (gravity 14.0, add charge/trick params, deprecate `jumpImpulse`) | T1 |
 | `src/player/PlayerController.ts` | Changed (add `jumpHeld` tracking, gamepad A button mapping) | T1 |
 | `src/physics/PhysicsEngine.ts` | Changed (charge-jump logic, air control, spin, trick landing rule) | T2 |
@@ -191,7 +191,10 @@ export interface PlayerState {
   activeDropZoneId: string;
   // ---- Iteration 3 charge-jump & trick fields (ADR-0008) ----
   jumpCharge: number;       // 0.0 to 1.0 charge accumulated while jumpHeld + grounded; reset on release/launch/crash
-  spinRad: number;          // Accumulated mid-air spin yaw in radians (independent of headingRad); reset on touchdown
+  spinRad: number;          // Accumulated mid-air spin yaw in radians (independent of headingRad); steer=+1 (D) decrements
+                            // (clockwise/screen-right, ADR-0006 sign convention); reset on touchdown
+  stanceRad: number;        // Persistent visual yaw offset: 0 = normal stance, π = switch/goofy; absorbs nearest-π
+                            // multiple of spinRad on clean landing (mod 2π); reset on wipeout/forceCrash/reset. Visual-only.
   activeGrab: 'none' | 'A' | 'B'; // Mid-air grab pose: 'A' = indy/method (W), 'B' = melon/tail (S), 'none' = not grabbing
 }
 

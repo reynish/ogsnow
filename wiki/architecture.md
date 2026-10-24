@@ -141,9 +141,9 @@ flowchart TD
 | `TerrainManager` | `src/terrain/TerrainManager.ts` | Loads committed `.glb` + `.json` + `.bin`, reconstructs `TerrainData`, manages mesh + obstacles, bilinear `getHeightAt(x,z)`/`getNormalAt(x,z)`. |
 | `Fetch` | `scripts/fetch-terrain.ts` | Node CLI (`npm run fetch-terrain -- --mountain <id>`): downloads pinned tiles → `.cache/terrain/`, decodes/reprojects/resamples, writes `<id>-dem.bin` + `<id>-terrain.json`. |
 | `Gen` | `scripts/generate-glb.ts` | Node CLI (offline): reads committed `.bin` + `.json`, runs derivation, exports deterministic `.glb`, enriches manifest. |
-| `PhysicsEngine` | `src/physics/PhysicsEngine.ts` | `cannon-es` world + slope-aligned snowboard dynamics: gravity projection along slope normal, carving deceleration, edge grip, obstacle/boundary collisions, crash recovery, airtime detection, **charge-jump mechanics** (Iteration 3: `jumpCharge` accumulation + release-to-launch), **frozen air heading** (`headingRad` locked at takeoff; `A`/`D` spins only), **spin accumulation** (`spinRad`), and **trick landing evaluation** (alignment tolerance + grab-on-touchdown crash rule). |
+| `PhysicsEngine` | `src/physics/PhysicsEngine.ts` | `cannon-es` world + slope-aligned snowboard dynamics: gravity projection along slope normal, carving deceleration, edge grip, obstacle/boundary collisions, crash recovery, airtime detection, **charge-jump mechanics** (Iteration 3: `jumpCharge` accumulation + release-to-launch), **frozen air heading** (`headingRad` locked at takeoff; `A`/`D` spins only), **spin accumulation** (`spinRad`, ADR-0006 sign convention), **switch-stance persistence** (`stanceRad` absorbs nearest-180° multiple on clean landing; reset on crash/reset), and **trick landing evaluation** (alignment tolerance + grab-on-touchdown crash rule). |
 | `InputController` | `src/player/PlayerController.ts` | Captures keyboard (`WASD` / Arrow keys / `Space` / `R`) and Gamepad inputs, plus programmatic input injection for E2E testing. |
-| `SnowboardCharacter` | `src/player/SnowboardCharacter.ts` | Low-poly PS1-style 3D snowboarder + board mesh hierarchy with procedural lean, carve tilt, pitch alignment, snow spray particles, **crouch/wind-up pose** (Iteration 3: interpolated from `jumpCharge`), **spin visual rotation** (`spinRad` yaw), **grab A/B arm poses** (`activeGrab`), and **landing squash** (brief compression on touchdown). |
+| `SnowboardCharacter` | `src/player/SnowboardCharacter.ts` | Low-poly PS1-style 3D snowboarder + board mesh hierarchy with procedural lean, carve tilt, pitch alignment, snow spray particles, **crouch/wind-up pose** (Iteration 3: interpolated from `jumpCharge`), **spin visual rotation** (`spinRad` + persistent `stanceRad` yaw; grounded shortest-path ease to stance), **grab A/B arm poses** (`activeGrab`), and **landing squash** (brief compression on touchdown). |
 | `FollowCamera` | `src/camera/FollowCamera.ts` | Third-person dynamic chase camera that interpolates position, look-at target, pitch tilt, and FOV (`62°` to `84°`) based on speed and slope pitch, with instant snap on drop-in/reset. |
 | `JungleAudioEngine` | `src/audio/JungleAudioEngine.ts` | Web Audio API procedural 170 BPM PS1 Jungle/Amen breakbeat synthesizer & mixer. |
 | `HUDManager` | `src/ui/HUDManager.ts` | Main menu mountain/drop-zone selector, attribution footer (`data-testid="terrain-attribution"`), HUD speedometer, altitude, audio stems, crash/airtime notifications, **controls legend overlay** (Iteration 3: charge-jump instructions and trick controls; no score display). |
@@ -289,7 +289,7 @@ stateDiagram-v2
     Trick_Spin --> Airborne: input.steer = 0 or land
     Trick_Grab_A --> Airborne: input.tuck = false or land
     Trick_Grab_B --> Airborne: input.carve = 0 or land
-    Airborne --> Grounded_Standing: touchdown & alignment OK & activeGrab = 'none'
+    Airborne --> Grounded_Standing: touchdown & aligned & no grab / stanceRad absorbs nearestHalf (switch for 180°/540°)
     Airborne --> Crashed: touchdown & (misaligned OR activeGrab ≠ 'none')
     Crashed --> Grounded_Standing: crashTimerSeconds ≤ 0
 ```
@@ -317,7 +317,7 @@ sequenceDiagram
 
     alt !isGrounded (Airborne)
         Phys->>Phys: headingRad FROZEN at takeoff value (no air steering; camera stays locked behind direction of travel)
-        Phys->>Phys: spinRad += input.steer * spinRateRadPerSec * dt
+        Phys->>Phys: spinRad -= input.steer * spinRateRadPerSec * dt (steer=+1/D decrements: clockwise/screen-right, ADR-0006 sign)
         
         alt input.tuck && !wasActiveGrab
             Phys->>Phys: activeGrab = 'A' (indy/method)
@@ -327,7 +327,7 @@ sequenceDiagram
             Phys->>Phys: activeGrab = 'none'
         end
 
-        Phys->>Char: state.spinRad, state.activeGrab (for visual rotation & grab poses)
+        Phys->>Char: state.stanceRad + state.spinRad, state.activeGrab (for visual yaw & grab poses)
     end
 
     Phys->>Terrain: getHeightAt(x, z) (check touchdown)
@@ -337,23 +337,23 @@ sequenceDiagram
         Phys->>Phys: alignmentError = |spinRad - nearestHalf|
         
         alt alignmentError > landAlignmentToleranceRad (π/3) OR activeGrab ≠ 'none'
-            Phys->>Phys: isCrashed = true; velocity *= 0.15; crashTimerSeconds = crashRecoverySeconds
+            Phys->>Phys: isCrashed = true; velocity *= 0.15; crashTimerSeconds = crashRecoverySeconds; stanceRad = 0
             Phys->>Char: crash tumble animation
         else
-            Phys->>Phys: spinRad = 0; activeGrab = 'none'
+            Phys->>Phys: stanceRad = (stanceRad + nearestHalf) mod 2π (180°/540° → switch, 360° → normal); spinRad = 0; activeGrab = 'none'
             Phys->>Char: landing squash animation
         end
     end
 
-    Phys-->>HUD: PlayerState (jumpCharge, spinRad, activeGrab, isCrashed)
+    Phys-->>HUD: PlayerState (jumpCharge, spinRad, stanceRad, activeGrab, isCrashed)
 ```
 
 ### 6.3 Input Interpretation (Ground vs. Air)
 
 | Input Key | Grounded Meaning | Airborne Meaning (ADR-0008) |
 | :--- | :--- | :--- |
-| `A` / `←` | Steer left (+X) | Spin frontside (spinRad decrements) |
-| `D` / `→` | Steer right (-X) | Spin backside (spinRad increments) |
+| `A` / `←` | Steer left (+X) | Spin frontside (spinRad increments — counterclockwise/screen-left) |
+| `D` / `→` | Steer right (-X) | Spin backside (spinRad decrements — clockwise/screen-right) |
 | `W` / `↑` | Tuck (aerodynamic boost) | Grab A (indy/method) |
 | `S` / `↓` | Carve/brake (slow down) | Grab B (melon/tail) |
 | `Space` | Hold to charge jump; release to launch | No effect (already airborne) |
@@ -363,4 +363,6 @@ sequenceDiagram
 | Gamepad `LT`/`B` | Carve/brake | Grab B |
 | Gamepad `RT` | Tuck | Grab A (alternative mapping) |
 
-**Airborne heading policy (ADR-0008, amended 2026-10-24):** while airborne the travel heading `headingRad` is **frozen** at its takeoff value — none of the airborne inputs above rotate the heading or the follow camera; `A`/`D` (or the stick) only spin the character (`spinRad`). Steering authority returns on touchdown.
+**Airborne heading policy (ADR-0008, amended 2026-10-24):** while airborne the travel heading `headingRad` is **frozen** at its takeoff value — none of the airborne inputs above rotate the heading or the follow camera; `A`/`D` (or the stick) only spin the character (`spinRad`, sharing `headingRad`'s sign convention: `D` decrements → clockwise/screen-right). Steering authority returns on touchdown.
+
+**Switch-stance persistence (ADR-0008, round-2 amendment 2026-10-24):** a clean landing absorbs the nearest `180°` multiple of `spinRad` into `stanceRad` (`180°`/`540°` → switch/goofy, `360°`/`720°` → normal; crash/reset → normal). While grounded the character eases its visual yaw to `stanceRad` (shortest path); while airborne the visual yaw is `stanceRad + spinRad`. `stanceRad` is visual-only and never affects heading, velocity, or obstacles.

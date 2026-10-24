@@ -173,6 +173,7 @@ This iteration replaces the single-button instantaneous jump with a **charge-and
 ### 8.3 Trick Controls (airborne)
 
 *   `A` / `D` (or `←` / `→`) — **spin** (frontside/backside yaw). Spin rate scales with speed.
+*   **Spin-direction convention:** `D`/`→` spins the rider **clockwise (screen-right)**, exactly matching the ground-steering direction; `A`/`←` spins **counterclockwise (screen-left)**. `spinRad` shares `headingRad`'s sign convention (ADR-0006): `steer = +1` (D) **decrements** the angle, `steer = −1` (A) increments it. With a regular (left-foot-forward) stance, `D` is a **backside** spin and `A` is a **frontside** spin.
 *   `W` (or `↑`) — **grab A** (indy / method).
 *   `S` (or `↓`) — **grab B** (melon / tail).
 *   Ground meanings are preserved: on the snow, `A`/`D` steer, `W` tucks, `S` carves; the airborne meanings above apply only while `isGrounded === false`.
@@ -182,12 +183,14 @@ This iteration replaces the single-button instantaneous jump with a **charge-and
 
 *   On touchdown the accumulated `spinRad` is compared to the nearest multiple of `π` (`180°`) within a tolerance (≈ `±60°`).
 *   **Clean landing:** Rotation is aligned (or the rider is not spinning/grabbing) → rider continues riding normally.
+*   **Switch-stance persistence:** a clean landing absorbs the nearest `180°` multiple of `spinRad` into a persistent, **visual-only** stance offset (`stanceRad`). Landing a `180°`/`540°` (odd multiple of `π`) leaves the rider riding **switch/goofy**; a `360°`/`720°` (even multiple) returns to the **normal** stance. A **crash/wipeout** or drop-zone **reset** reverts the stance to normal. Travel heading is unaffected — stance is cosmetic only.
 *   **Wipeout:** If the rider touches down **mid-rotation** (not near a `180°`/`360°` multiple) **or is still holding a grab**, the rider **crashes** (`isCrashed`, using the existing crash-recovery flow and arrest friction). Landing out of a trick is therefore a genuine risk.
 
 ### 8.5 Character Model Response
 
 *   **Crouch/charge pose:** interpolated from `jumpCharge` — compressed legs, dropped hips, forward-leaning torso, board flex.
-*   **Air/trick poses:** the character group visually rotates with `spinRad`, and the corresponding arm reaches to the board edge while a grab is held.
+*   **Air/trick poses:** while airborne the character group visually yaws with `stanceRad + spinRad` (persistent stance offset plus in-air spin), and the corresponding arm reaches to the board edge while a grab is held.
+*   **Grounded stance ease:** after touchdown the character's visual yaw eases to the persistent `stanceRad` stance — **not** to `0` unless the stance is normal. The ease takes the shortest angular path, so a landed `360°` unwinds only the small residual alignment error instead of visibly rotating a full turn backwards.
 *   **Landing squash:** a brief compression on clean touchdown; the existing wipeout tumble is retained for crashes.
 
 ### 8.6 Out of Scope (this iteration)
@@ -205,3 +208,5 @@ This iteration replaces the single-button instantaneous jump with a **charge-and
 6. Landing mid-rotation or while grabbing sets `isCrashed = true` and recovers via the existing `crashRecoverySeconds`; landing aligned (or not tricking) does not crash.
 7. `npm run build`, `npm test`, and `npm run test:e2e` pass with zero runtime/console errors; existing camera/audio/terrain contracts remain intact.
 8. `wiki/interfaces.md`, `wiki/architecture.md`, and a new ADR-0008 document the new input/state fields and control rules; ADR-0003 is superseded where it conflicts.
+9. Airborne `D`/`→` (`steer = +1`) **decrements** `spinRad` — the rider spins clockwise/screen-right, matching the ground-steering direction — and `A`/`←` increments it; verified by unit + E2E spin-sign tests (per the ADR-0008 round-2 amendment).
+10. A clean landing absorbs the nearest `180°` multiple of `spinRad` into `stanceRad`: a landed `180°` leaves the rider in a persistent switch stance while grounded, a `360°` returns to normal, and a crash or reset reverts to normal; verified by unit + E2E stance-persistence tests (per the ADR-0008 round-2 amendment).
