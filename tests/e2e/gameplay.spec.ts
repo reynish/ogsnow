@@ -496,7 +496,11 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     });
 
     // Full-charge launch helper (charge 0.5s, then release).
-    const launchFullCharge = async () => {
+    // Returns headingRad captured IMMEDIATELY after launch (the takeoff value).
+    // Owner PR-4 comment: while airborne headingRad must remain FROZEN at this
+    // value — A/D only accumulates spinRad — so the follow camera stays locked
+    // behind the direction of travel.
+    const launchFullCharge = async (): Promise<number> => {
       await page.evaluate(() => {
         for (let i = 0; i < 10; i++) {
           window.__OGSNOW_APP__?.stepSimulation(0.05, { jumpHeld: true });
@@ -505,20 +509,41 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
       });
       const s = await page.evaluate(() => window.__OGSNOW_STATE__.player);
       expect(s.isGrounded).toBe(false);
+      return s.headingRad;
+    };
+
+    // Asserts the airborne camera never swings laterally while the rider spins:
+    // with heading frozen the camera target sits at player.x (heading = 0 at
+    // launch, travel is straight +Z), so |camX - playerX| stays ~0 (smoothing
+    // lag only). Under the removed air-steering defect this drifted by metres.
+    const maxAirborneCameraLateralDrift = async (steps: number): Promise<number> => {
+      return page.evaluate((n) => {
+        let maxDrift = 0;
+        for (let i = 0; i < n; i++) {
+          window.__OGSNOW_APP__?.stepSimulation(0.05, { steer: 1.0 });
+          const s = window.__OGSNOW_STATE__;
+          maxDrift = Math.max(
+            maxDrift,
+            Math.abs(s.camera.position.x - s.player.position.x),
+            Math.abs(s.camera.lookAt.x - s.player.position.x)
+          );
+        }
+        return maxDrift;
+      }, steps);
     };
 
     // ── Case A: spin ~0.55s (~1.65 rad) then stop and land mid-rotation -> crash ──
-    await launchFullCharge();
-    await page.evaluate(() => {
-      for (let i = 0; i < 11; i++) {
-        window.__OGSNOW_APP__?.stepSimulation(0.05, { steer: 1.0 });
-      }
-    });
+    const headingAtLaunchA = await launchFullCharge();
+    const camDriftA = await maxAirborneCameraLateralDrift(11);
 
     const airMid = await page.evaluate(() => window.__OGSNOW_STATE__.player);
     expect(airMid.isGrounded).toBe(false);
     expect(airMid.spinRad).toBeGreaterThan(1.2);
     expect(airMid.spinRad).toBeLessThan(2.1);
+    // Owner PR-4 comment: spinning must NOT yaw the travel heading or swing the
+    // follow camera — heading stays frozen and the camera stays behind travel.
+    expect(Math.abs(airMid.headingRad - headingAtLaunchA)).toBeLessThanOrEqual(1e-9);
+    expect(camDriftA).toBeLessThan(1.0);
 
     // Freeze the spin and wait for touchdown while keeping the rider neutral.
     await page.evaluate(() => {
@@ -531,22 +556,23 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     const midLanding = await page.evaluate(() => window.__OGSNOW_STATE__.player);
     expect(midLanding.isGrounded).toBe(true);
     expect(midLanding.isCrashed).toBe(true);
+    // Air spin input never yawed the travel heading: identical at touchdown.
+    expect(Math.abs(midLanding.headingRad - headingAtLaunchA)).toBeLessThanOrEqual(1e-9);
 
     // ── Case B: spin to ~180 deg (3.15 rad) then stop and land aligned -> clean ──
     await page.evaluate(() => {
       window.__OGSNOW_APP__?.stepSimulation(0.05, { reset: true });
     });
-    await launchFullCharge();
-    await page.evaluate(() => {
-      for (let i = 0; i < 21; i++) {
-        window.__OGSNOW_APP__?.stepSimulation(0.05, { steer: 1.0 });
-      }
-    });
+    const headingAtLaunchB = await launchFullCharge();
+    const camDriftB = await maxAirborneCameraLateralDrift(21);
 
     const airAligned = await page.evaluate(() => window.__OGSNOW_STATE__.player);
     expect(airAligned.isGrounded).toBe(false);
     expect(airAligned.spinRad).toBeGreaterThan(Math.PI - 0.2);
     expect(airAligned.spinRad).toBeLessThan(Math.PI + 0.2);
+    // Same owner-comment invariant in the clean-landing case.
+    expect(Math.abs(airAligned.headingRad - headingAtLaunchB)).toBeLessThanOrEqual(1e-9);
+    expect(camDriftB).toBeLessThan(1.0);
 
     await page.evaluate(() => {
       for (let i = 0; i < 80; i++) {
@@ -559,6 +585,8 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     expect(cleanLanding.isGrounded).toBe(true);
     expect(cleanLanding.isCrashed).toBe(false);
     expect(cleanLanding.spinRad).toBe(0);
+    // Air spin input never yawed the travel heading: identical at touchdown.
+    expect(Math.abs(cleanLanding.headingRad - headingAtLaunchB)).toBeLessThanOrEqual(1e-9);
 
     await page.evaluate(() => {
       window.__OGSNOW_APP__?.setPaused?.(false);

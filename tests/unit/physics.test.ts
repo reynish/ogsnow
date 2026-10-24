@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import fs from 'node:fs';
 import * as THREE from 'three';
 import { TerrainManager } from '../../src/terrain/TerrainManager';
@@ -244,34 +244,47 @@ describe('Physics, Character & Camera (Task 2)', () => {
       expect(Math.abs(launch.velocity.y - DEFAULT_GAME_CONFIG.jumpMinImpulse)).toBeLessThan(0.5);
     });
 
-    it('launches on release with jumpMaxImpulse on a full charge and achieves 1.8-2.4s airtime', () => {
-      const dropZone = terrain.terrainData.dropZones[0];
-      physics.resetAtDropZone(dropZone);
+    it('launches on release with jumpMaxImpulse on a full charge and achieves 1.8-2.2s airtime (flat-spot launch)', () => {
+      // Flat-spot launch: constant terrain height + zero pitch make the flight
+      // purely ballistic (t = 2*vy/g = 2.0s), matching the documented
+      // ADR-0008 strict rule 3 band of 1.8-2.2s exactly (no slope margin).
+      const flatTerrain = new TerrainManager(loadRealTerrainData());
+      const dropZone = flatTerrain.terrainData.dropZones[0];
+      const flatY = flatTerrain.getHeightAt(dropZone.spawnPosition.x, dropZone.spawnPosition.z);
+      (flatTerrain as any).getHeightAt = () => flatY;
+      (flatTerrain as any).getSlopePitchAt = () => 0;
+      (flatTerrain as any).checkObstacleCollision = () => null;
+
+      const flatPhysics = new PhysicsEngine(flatTerrain, {
+        ...DEFAULT_GAME_CONFIG,
+        dropZones: [dropZone],
+      });
+      flatPhysics.resetAtDropZone(dropZone);
 
       const dt = 0.05;
       const steps = Math.ceil(DEFAULT_GAME_CONFIG.jumpChargeMaxSeconds / dt);
       for (let i = 0; i < steps; i++) {
-        physics.step(dt, { ...neutralInput, jumpHeld: true });
+        flatPhysics.step(dt, { ...neutralInput, jumpHeld: true });
       }
-      expect(physics.getState().jumpCharge).toBeCloseTo(1.0, 1);
-      expect(physics.getState().isGrounded).toBe(true);
+      expect(flatPhysics.getState().jumpCharge).toBeCloseTo(1.0, 1);
+      expect(flatPhysics.getState().isGrounded).toBe(true);
 
       // Release with a short step so gravity has minimal time to reduce vy before sampling.
-      physics.step(0.016, { ...neutralInput, jumpHeld: false });
-      const launch = physics.getState();
+      flatPhysics.step(0.016, { ...neutralInput, jumpHeld: false });
+      const launch = flatPhysics.getState();
       expect(launch.isGrounded).toBe(false);
       // Absolute tolerance of 0.5 m/s (toBeCloseTo's 2nd arg is decimal digits, not tolerance).
       expect(Math.abs(launch.velocity.y - DEFAULT_GAME_CONFIG.jumpMaxImpulse)).toBeLessThan(0.5);
 
       let airtime = 0;
-      while (!physics.getState().isGrounded && airtime < 5.0) {
-        physics.step(dt, neutralInput);
+      while (!flatPhysics.getState().isGrounded && airtime < 5.0) {
+        flatPhysics.step(dt, neutralInput);
         airtime += dt;
       }
 
-      // README design band is ~1.8-2.2s; allow a small slope-driven margin up to 2.4s.
+      // ADR-0008 strict rule 3 / README §8.2/§8.7.4: full-charge air time 1.8-2.2s.
       expect(airtime).toBeGreaterThanOrEqual(1.8);
-      expect(airtime).toBeLessThanOrEqual(2.4);
+      expect(airtime).toBeLessThanOrEqual(2.2);
     });
 
     it('yields a longer airtime for a full charge than for a tap', () => {
@@ -328,6 +341,51 @@ describe('Physics, Character & Camera (Task 2)', () => {
       expect(crouchChange).toBeLessThan(standingChange * 0.6);
       expect(crouchChange).toBeGreaterThan(0);
     });
+
+    it('requires a fresh Space press after landing — holding Space through touchdown never starts a new charge (ADR-0008 §1)', () => {
+      // Flat-spot terrain keeps the full flight + post-landing ride deterministic
+      // (no obstacles, no boundary resets).
+      const flatTerrain = new TerrainManager(loadRealTerrainData());
+      const dropZone = flatTerrain.terrainData.dropZones[0];
+      const flatY = flatTerrain.getHeightAt(dropZone.spawnPosition.x, dropZone.spawnPosition.z);
+      (flatTerrain as any).getHeightAt = () => flatY;
+      (flatTerrain as any).getSlopePitchAt = () => 0;
+      (flatTerrain as any).checkObstacleCollision = () => null;
+      const flatPhysics = new PhysicsEngine(flatTerrain, {
+        ...DEFAULT_GAME_CONFIG,
+        dropZones: [dropZone],
+      });
+      flatPhysics.resetAtDropZone(dropZone);
+
+      // Charge fully and launch.
+      const chargeSteps = Math.ceil(DEFAULT_GAME_CONFIG.jumpChargeMaxSeconds / 0.05);
+      for (let i = 0; i < chargeSteps; i++) {
+        flatPhysics.step(0.05, { ...neutralInput, jumpHeld: true });
+      }
+      flatPhysics.step(0.016, { ...neutralInput, jumpHeld: false });
+      expect(flatPhysics.getState().isGrounded).toBe(false);
+
+      // Re-press and HOLD Space mid-air; keep holding through touchdown and beyond.
+      const holdInput: PlayerInput = { ...neutralInput, jumpHeld: true };
+      let guard = 0;
+      while (!flatPhysics.getState().isGrounded && guard++ < 200) {
+        flatPhysics.step(0.05, holdInput);
+      }
+      expect(flatPhysics.getState().isGrounded).toBe(true);
+      expect(flatPhysics.getState().isCrashed).toBe(false); // neutral landing = clean
+
+      // Still held: no new charge may accumulate for a full second on the snow.
+      for (let i = 0; i < 20; i++) {
+        flatPhysics.step(0.05, holdInput);
+        expect(flatPhysics.getState().jumpCharge).toBe(0);
+        expect(flatPhysics.getState().isGrounded).toBe(true);
+      }
+
+      // Release then re-press: the fresh press charges normally.
+      flatPhysics.step(0.05, { ...neutralInput, jumpHeld: false });
+      flatPhysics.step(0.05, holdInput);
+      expect(flatPhysics.getState().jumpCharge).toBeGreaterThan(0);
+    });
   });
 
   describe('Air Control & Spin (ADR-0008)', () => {
@@ -355,33 +413,87 @@ describe('Physics, Character & Camera (Task 2)', () => {
       expect(state.spinRad).toBeLessThan(3.5);
     });
 
-    it('changes airborne heading but less than the grounded steering rate over the same window', () => {
+    it('freezes headingRad while airborne; A/D accumulates only spinRad at spinRateRadPerSec', () => {
       const dropZone = terrain.terrainData.dropZones[0];
 
-      // Grounded steering over 0.2s
-      physics.resetAtDropZone(dropZone);
-      const groundStart = physics.getState().headingRad;
-      for (let i = 0; i < 4; i++) {
-        physics.step(0.05, { ...neutralInput, steer: 1.0 });
-      }
-      const groundChange = Math.abs(physics.getState().headingRad - groundStart);
-
-      // Airborne steering over 0.2s
+      // Launch at full charge so the rider stays airborne for the whole steer window.
       physics.resetAtDropZone(dropZone);
       const chargeSteps = Math.ceil(DEFAULT_GAME_CONFIG.jumpChargeMaxSeconds / 0.05);
       for (let i = 0; i < chargeSteps; i++) {
         physics.step(0.05, { ...neutralInput, jumpHeld: true });
       }
       physics.step(0.016, { ...neutralInput, jumpHeld: false });
-      const airStart = physics.getState().headingRad;
-      for (let i = 0; i < 4; i++) {
+      expect(physics.getState().isGrounded).toBe(false);
+
+      const frozenHeading = physics.getState().headingRad;
+      const spinInput: PlayerInput = { ...neutralInput, steer: 1.0 };
+      for (let i = 0; i < 20; i++) {
+        physics.step(0.05, spinInput);
+      }
+
+      const state = physics.getState();
+      expect(state.isGrounded).toBe(false);
+      // ADR-0008 §4 / owner PR-4 comment / README §8.3: heading is FROZEN at its
+      // takeoff value while airborne (exact equality — the frozen branch performs
+      // no mutation); A/D drives spinRad only.
+      expect(state.headingRad).toBe(frozenHeading);
+      // ~spinRateRadPerSec (3.0 rad/s) over ~1.0s. Allow a small integration margin.
+      expect(state.spinRad).toBeGreaterThan(2.5);
+      expect(state.spinRad).toBeLessThan(3.5);
+    });
+
+    it('does not bank rollRad from A/D while airborne (roll target decays toward 0 in the air)', () => {
+      const dropZone = terrain.terrainData.dropZones[0];
+      physics.resetAtDropZone(dropZone);
+
+      const chargeSteps = Math.ceil(DEFAULT_GAME_CONFIG.jumpChargeMaxSeconds / 0.05);
+      for (let i = 0; i < chargeSteps; i++) {
+        physics.step(0.05, { ...neutralInput, jumpHeld: true });
+      }
+      physics.step(0.016, { ...neutralInput, jumpHeld: false });
+      expect(physics.getState().isGrounded).toBe(false);
+
+      for (let i = 0; i < 10; i++) {
         physics.step(0.05, { ...neutralInput, steer: 1.0 });
       }
-      const airChange = Math.abs(physics.getState().headingRad - airStart);
 
-      // ADR-0008 rule 4: limited air steering (~0.35x ground rate).
-      expect(airChange).toBeGreaterThan(0);
-      expect(airChange).toBeLessThan(groundChange);
+      // A/D in the air is a trick-spin input only; it must not bank the rider.
+      expect(Math.abs(physics.getState().rollRad)).toBeLessThan(0.02);
+      // Spin still accumulated normally during the same window.
+      expect(physics.getState().spinRad).toBeGreaterThan(1.0);
+    });
+
+    it('keeps the follow camera locked behind the travel direction while spinning in the air (owner PR-4 comment)', () => {
+      const dropZone = terrain.terrainData.dropZones[0]; // summit-express, initialHeadingRad = 0
+      physics.resetAtDropZone(dropZone);
+
+      const camera = new FollowCamera(16 / 9, DEFAULT_GAME_CONFIG, terrain);
+
+      const chargeSteps = Math.ceil(DEFAULT_GAME_CONFIG.jumpChargeMaxSeconds / 0.05);
+      for (let i = 0; i < chargeSteps; i++) {
+        physics.step(0.05, { ...neutralInput, jumpHeld: true });
+      }
+      physics.step(0.016, { ...neutralInput, jumpHeld: false });
+      expect(physics.getState().isGrounded).toBe(false);
+      expect(physics.getState().headingRad).toBe(0);
+
+      camera.snap(physics.getState());
+
+      const spinInput: PlayerInput = { ...neutralInput, steer: 1.0 };
+      for (let i = 0; i < 20 && !physics.getState().isGrounded; i++) {
+        physics.step(0.05, spinInput);
+        const player = physics.getState();
+        const cam = camera.update(player, 0.05);
+        // Heading frozen at 0 => straight +Z travel; no lateral camera swing.
+        expect(player.headingRad).toBe(0);
+        expect(Math.abs(cam.position.x - player.position.x)).toBeLessThan(0.25);
+        // Look-at stays ahead of the rider along +Z, not swung sideways.
+        expect(cam.lookAt.z).toBeGreaterThan(player.position.z);
+        expect(Math.abs(cam.lookAt.x - player.position.x)).toBeLessThan(0.25);
+      }
+
+      // The rider actually spun during the window (trick input was live).
+      expect(physics.getState().spinRad).toBeGreaterThan(1.0);
     });
 
     it('sets activeGrab = A on tuck while airborne and releases to none (no latching)', () => {
@@ -718,6 +830,47 @@ describe('Physics, Character & Camera (Task 2)', () => {
       const frame5 = controller.getInput();
       expect(frame5.jumpHeld).toBe(true);
 
+      controller.dispose();
+    });
+
+    it('latches a sub-frame Space tap so it still yields one frame of jumpHeld (README §8.1 — input is never dead)', () => {
+      const controller = new PlayerController();
+
+      // keydown + keyup BOTH occur between two getInput() samples (a fast tap).
+      (controller as any).handleKeyDown({ code: 'Space', preventDefault: () => {} });
+      (controller as any).handleKeyUp({ code: 'Space' });
+
+      // The tap must surface as exactly one frame of jumpHeld = true (minimal hop).
+      expect(controller.getInput().jumpHeld).toBe(true);
+      expect(controller.getInput().jumpHeld).toBe(false);
+
+      controller.dispose();
+    });
+
+    it('polls the gamepad once per getInput() and folds button A into jumpHeld', () => {
+      const controller = new PlayerController();
+      let pollCount = 0;
+      const fakePad = {
+        connected: true,
+        axes: [0, 0],
+        buttons: Array.from({ length: 17 }, (_, i) => ({
+          pressed: i === 0,
+          value: i === 0 ? 1 : 0,
+        })),
+      };
+      vi.stubGlobal('navigator', {
+        getGamepads: () => {
+          pollCount++;
+          return [fakePad];
+        },
+      });
+      try {
+        const input = controller.getInput();
+        expect(input.jumpHeld).toBe(true); // gamepad A (button 0) folded in
+        expect(pollCount).toBe(1); // single merged poll per getInput()
+      } finally {
+        vi.unstubAllGlobals();
+      }
       controller.dispose();
     });
   });
