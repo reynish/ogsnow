@@ -890,3 +890,215 @@ git diff --exit-code public/assets/  # no asset changes
 ```
 
 All tests pass, zero console errors, existing 3s >20 km/h guarantee preserved, and `npm run build && npm run preview` boots with charge-jump, spin, and grab mechanics fully functional.
+
+---
+
+# Iteration 4 Task Decomposition (`feat/better-character-model`)
+
+This document decomposes Iteration 4 (Better Character Model) into self-contained tasks for Execution Sub-Agents. Every Sub-Agent MUST read `wiki/README.md`, `wiki/architecture.md`, `wiki/interfaces.md`, all active ADRs (`wiki/adr/0001-*.md` through `0009-*.md`), and `wiki/reviews/pr-0001-opus-review.md` before writing code. The locked decisions and strict compliance rules live in **ADR-0009**; this file is the dispatchable spec.
+
+## Goal
+
+Replace the procedural box-built rider in `src/player/SnowboardCharacter.ts` with a free, rigged low-poly humanoid `.glb` model. Re-implement all existing procedural poses (crouch, spins, grabs, landing squash, stance offset from ADR-0008 §8.5) as **bone-driven transforms**. The public `SnowboardCharacter` API (`group`, `boardMesh`, `update()`, `reset()`) must remain unchanged so `GameApp`, `PhysicsEngine`, `FollowCamera`, and `JungleAudioEngine` require zero changes.
+
+## Execution Order & Parallelism Graph
+
+```mermaid
+flowchart TD
+    T1["T1: Find & Download Rigged Low-Poly Character Model"]
+    T2["T2: Load .glb, Map Skeleton & Preserve Public API (SnowboardCharacter)"]
+    T3["T3: Re-implement Procedural Poses as Bone-Driven Transforms"]
+    T4["T4: Material Overrides & Fallback (Procedural Rider)"]
+    T5["T5: Unit + E2E Test Suite (model load, poses, fallback)"]
+
+    T1 --> T2
+    T2 --> T3
+    T3 --> T4
+    T4 --> T5
+```
+
+- **Wave 1:** T1 (model search & download) is independent and can run first.
+- **Wave 2:** T2 (loading & skeleton mapping) depends on the committed `.glb`.
+- **Wave 3:** T3 (pose re-implementation) depends on T2.
+- **Wave 4:** T4 (materials, fallback, integration) depends on T3.
+- **Wave 5:** T5 (tests) depends on T2–T4 integrated.
+
+## Task T1: Find & Download Rigged Low-Poly Character Model
+
+- **Assigned Role:** Execution Sub-Agent T1 (Asset Sourcing)
+- **Owned Files (new):**
+  - `public/assets/character/rider.glb`
+  - `public/assets/character/ATTRIBUTION.md` (if CC-BY)
+- **Detailed Requirements:**
+
+### 1.1 Search Criteria
+
+Search free model repositories for a low-poly humanoid base mesh:
+- **License:** CC0 strongly preferred; CC-BY accepted (must record attribution).
+- **Poly count:** ≤ 2,000 triangles.
+- **Skeleton:** Standard humanoid bones (Mixamo-style or generic): `Hips`, `Spine`, `Chest`/`Spine1`, `Head`, `LeftLeg`/`RightLeg`, `LeftArm`/`RightArm`. Additional bones (fingers, toes) are fine if ignored.
+- **Format:** `.glb` (single file, no external textures preferred).
+- **Style:** Humanoid male or gender-neutral base mesh. Clothing can be minimal/underwear style; the runtime will override materials to the 90s snowboard palette (purple pants, magenta jacket, yellow beanie, skin, cyan goggles).
+- **Size:** Under ~200 KB.
+
+Candidate sources:
+- [poly.pizza](https://poly.pizza) (CC0)
+- [Sketchfab CC0](https://sketchfab.com/search?features=downloadable&sort_by=-likeCount&type=models)
+- [Kenney.nl](https://kenney.nl/assets) (CC0)
+- Mixamo (free with Adobe account, auto-rigged)
+
+### 1.2 Validation
+
+Before committing, validate the `.glb`:
+- Open with `npx gltf-validator` or a local Three.js loader script.
+- Confirm at least one `THREE.SkinnedMesh` and a `THREE.Skeleton` with ≥ 10 bones.
+- Confirm the model renders upright (Y-up) with reasonable scale (1 unit ≈ 1 meter; rider height ~1.6–1.8 units).
+
+### 1.3 Commit
+
+Place the validated `.glb` at `public/assets/character/rider.glb`.
+If CC-BY, write `public/assets/character/ATTRIBUTION.md` with:
+- Model name / author
+- Source URL
+- License name
+- Exact license text or link
+
+## Task T2: Load .glb, Map Skeleton & Preserve Public API
+
+- **Assigned Role:** Execution Sub-Agent T2 (Character Loader & Skeleton Mapping)
+- **Owned Files (changed):**
+  - `src/player/SnowboardCharacter.ts`
+- **Detailed Requirements:**
+
+### 2.1 Runtime Loading
+
+Add an async `init()` method (or constructor load) that:
+- Uses `GLTFLoader` to load `public/assets/character/rider.glb`.
+- Extracts the scene, traverses for `THREE.SkinnedMesh`, and builds a `Map<string, THREE.Bone>` from bone names.
+- Bone name aliases must be tolerated (`mixamorig:Hips` → `Hips`, `mixamorig:LeftArm` → `LeftArm`, etc.).
+
+### 2.2 Public API Preservation
+
+`SnowboardCharacter` must expose **exactly** the same public interface:
+```typescript
+export class SnowboardCharacter {
+  public readonly group: THREE.Group;
+  public readonly boardMesh: THREE.Mesh;
+  public readonly riderGroup: THREE.Group;
+  update(state: PlayerState, dt: number): void;
+  reset(): void;
+}
+```
+- `group` is the root `THREE.Group` (added to the scene by `GameApp`).
+- `boardMesh` remains the procedural neon-cyan snowboard (unchanged geometry/material).
+- `riderGroup` is the loaded GLB scene (or a wrapper group containing it).
+
+### 2.3 Fallback
+
+If the `.glb` fails to load (missing file, parse error, no skeleton), fall back to the existing procedural box-built rider construction. This fallback must be **silent** (log a warning only) so the game never crashes.
+
+## Task T3: Re-implement Procedural Poses as Bone-Driven Transforms
+
+- **Assigned Role:** Execution Sub-Agent T3 (Pose System Re-implementation)
+- **Owned Files (changed):**
+  - `src/player/SnowboardCharacter.ts`
+- **Preconditions:** T2 skeleton map is available.
+- **Detailed Requirements:**
+
+### 3.1 Pose Mapping
+
+Re-implement the procedural pose code from the box-built rider using bone quaternions / positions:
+
+- **Crouch/charge (`jumpCharge`):**
+  - Lower `Hips` Y by `jumpCharge * 0.15`.
+  - Bend `Spine` forward by `jumpCharge * 0.25` rad.
+  - Rotate upper-leg bones inward slightly.
+- **Grab A (`activeGrab === 'A'`):**
+  - Rotate `RightArm` bone so the hand reaches toward the front (toe-side) board edge.
+- **Grab B (`activeGrab === 'B'`):**
+  - Rotate `LeftArm` bone so the hand reaches toward the back (heel-side) board edge.
+- **Spin / stance (`stanceRad + spinRad`):**
+  - Rotate the **entire `group`** around world Y by `stanceRad + spinRad`, exactly as today. Do NOT rotate individual bones for spin; the root group rotation preserves the simple contract with `PhysicsEngine`/`FollowCamera`.
+- **Landing squash:**
+  - On clean touchdown: brief `Spine` compression (`-0.1` rad for `0.15 s`) and `Hips` dip (`-0.05` for `0.15 s`).
+
+All lerps use the same time constants as the existing procedural code. The `update()` signature and its `PlayerState` dependency are unchanged.
+
+### 3.2 Board Positioning
+
+The procedural `boardMesh` and bindings remain positioned relative to the rider's feet. If the loaded model has feet bones, use them as reference; otherwise keep the existing fixed offsets (`frontBinding at z=0.35`, `backBinding at z=-0.35`).
+
+## Task T4: Material Overrides & Integration
+
+- **Assigned Role:** Execution Sub-Agent T4 (Materials & Fallback)
+- **Owned Files (changed):**
+  - `src/player/SnowboardCharacter.ts`
+- **Preconditions:** T2 skeleton + T3 poses integrated.
+- **Detailed Requirements:**
+
+### 4.1 Material Overrides
+
+After loading the `.glb`, traverse all meshes and replace materials with `THREE.MeshStandardMaterial`:
+- Pants mesh → `#4a154b` (purple), `flatShading: true`, `roughness: 0.85`
+- Jacket mesh → `#ff3366` (magenta), `flatShading: true`, `roughness: 0.8`
+- Beanie / hat mesh → `#ffcc00` (yellow), `flatShading: true`, `roughness: 0.9`
+- Skin / head mesh → `#f3b07c`, `flatShading: true`, `roughness: 0.8`
+- Goggles mesh → `#00f0ff`, `flatShading: true`, `roughness: 0.2`, `metalness: 0.8`
+- Boots / shoes mesh → `#1f2421`, `flatShading: true`, `roughness: 0.9`
+
+If the model does not have separate meshes for each clothing part, use the existing single-material approach or apply the jacket color as the dominant color. The goal is PS1-era flat-shading with the 90s palette.
+
+### 4.2 Snow Spray Particles
+
+The existing `sprayParticles` buffer system must continue to work. If the rider's feet position changes with the new model, update the particle spawn offset to track the lowest foot bone or keep the existing board-level offset.
+
+## Task T5: Unit + E2E Test Suite
+
+- **Assigned Role:** Execution Sub-Agent T5 (Testing & Verification)
+- **Owned Files (new/changed):**
+  - `tests/unit/character.test.ts` (changed/extended)
+  - `tests/e2e/gameplay.spec.ts` (changed/extended, if visual selectors need updating)
+- **Preconditions:** T2–T4 complete.
+- **Detailed Requirements:**
+
+### 5.1 Unit Tests
+
+- **Model load:** `SnowboardCharacter` loads the `.glb` and exposes a skeleton.
+- **Fallback:** If `rider.glb` is missing, the procedural fallback activates and `group` still has children.
+- **Pose verification:** After setting `jumpCharge: 1.0`, the `Hips` bone Y position is measurably lower than at `jumpCharge: 0.0`.
+- **Grab poses:** After setting `activeGrab: 'A'`, the `RightArm` bone rotation differs from `'none'`.
+- **Spin/stance:** After setting `spinRad: Math.PI`, the `group.rotation.y` equals `Math.PI` (unchanged contract).
+
+### 5.2 E2E Tests
+
+- Existing trick E2E tests (charge-jump, spin direction, landing rule) must pass without modification.
+- If any selector depended on a mesh name from the old box-built rider, update it.
+- Assert zero `console.error` events during gameplay.
+
+### 5.3 Build Verification
+
+```bash
+npm run build
+npm test
+npm run test:e2e
+```
+All must pass.
+
+## Summary of Task Deliverables
+
+| Task | Files Changed/New | Deliverable |
+| :--- | :--- | :--- |
+| **T1** | `public/assets/character/rider.glb`, `ATTRIBUTION.md` | Free rigged low-poly humanoid model, validated, committed |
+| **T2** | `src/player/SnowboardCharacter.ts` | `.glb` load, skeleton map, public API preserved, procedural fallback |
+| **T3** | `src/player/SnowboardCharacter.ts` | Bone-driven crouch, grab A/B, spin/stance, landing squash |
+| **T4** | `src/player/SnowboardCharacter.ts` | Material palette overrides, spray particle compatibility |
+| **T5** | `tests/unit/character.test.ts`, `tests/e2e/gameplay.spec.ts` | Unit + E2E tests, all green |
+
+**Final integration verification:**
+```bash
+npm run build
+npm test
+npm run test:e2e
+```
+
+All tests pass, zero console errors, existing mechanics unchanged, and the new rigged model renders in-game with correct materials and poses.

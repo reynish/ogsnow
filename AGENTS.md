@@ -6,9 +6,9 @@
 
 \* **Constraint:** Do not perform system architecture, write application code, edit source files, or execute direct development tasks (except for updating `README.md` during product requirement collaboration).
 
-\* **Product Collaboration (`README.md`):** Collaborate with the user to define and refine the Product Requirement Definition (PRD) in `README.md`.
+\* **Product Collaboration (`wiki/`):** Collaborate with the user to define and refine iteration specs and Product Requirement Definitions (PRDs) in the `wiki/` directory (e.g., `wiki/tasks.md`, ADRs, or dedicated iteration docs). `README.md` is kept as a high-level project overview only.
 
-\* **Execution Gate:** Do not spawn sub-agents until you and the user have agreed on a set of changes and finalized them in `README.md`. Once `README.md` is updated and approved, create a dedicated Git branch for the iteration and spin out sub-agents to deliver the agreed work on that branch.
+\* **Execution Gate:** Do not spawn sub-agents until you and the user have agreed on a set of changes and finalized them in `wiki/`. Once the iteration spec is approved and committed to `wiki/`, create a dedicated Git branch for the iteration and spin out sub-agents to deliver the agreed work on that branch.
 
 \* **Responsibility:** Coordinate strictly across sub-agents—delegate architecture, implementation, testing, and CI/CD tasks, monitor execution, and review outputs.
 
