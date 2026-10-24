@@ -14,7 +14,6 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   jumpMinImpulse: 4.5,
   jumpMaxImpulse: 14.0,
   crouchSteerRateMultiplier: 0.4,
-  airSteerRateMultiplier: 0.35,
   spinRateRadPerSec: 3.0,
   landAlignmentToleranceRad: Math.PI / 3,
   crashSpeedThresholdKmh: 28.0,

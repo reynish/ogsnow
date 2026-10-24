@@ -202,7 +202,6 @@ export interface GameConfig {
   jumpMinImpulse: number;               // vertical impulse for minimal tap (e.g. 4.5 m/s)
   jumpMaxImpulse: number;               // vertical impulse for full charge (e.g. 14.0 m/s)
   crouchSteerRateMultiplier: number;    // effective steering rate while jumpCharge > 0 (e.g. 0.4 = 40% of normal)
-  airSteerRateMultiplier: number;       // effective steering rate while airborne (e.g. 0.35 = 35% of normal)
   spinRateRadPerSec: number;            // spin accumulation rate while airborne (e.g. 3.0 rad/s)
   landAlignmentToleranceRad: number;    // tolerance for clean trick landing vs crash (e.g. π/3 = 60°)
 }

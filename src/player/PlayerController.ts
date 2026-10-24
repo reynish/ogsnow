@@ -3,6 +3,10 @@ import { PlayerInput } from '../types';
 export class PlayerController {
   private target: Window | HTMLElement | null = null;
   private keyStates: Map<string, boolean> = new Map();
+  // Latches a Space key-down until getInput() has reported it once, so a tap
+  // whose keydown+keyup both fall between two frames still yields one frame of
+  // jumpHeld = true (README §8.1 — "input is never dead").
+  private pendingJumpPress = false;
   private override: Partial<PlayerInput> | null = null;
   private onKeyDownBound: (e: KeyboardEvent) => void;
   private onKeyUpBound: (e: KeyboardEvent) => void;
@@ -42,8 +46,12 @@ export class PlayerController {
 
     const tuck = this.isPressed('KeyW') || this.isPressed('ArrowUp');
 
-    // jumpHeld: single continuous hold signal — true while Space or gamepad A is held down
-    const jumpHeld = this.isPressed('Space') || this.pollGamepadButtonA();
+    // jumpHeld: single continuous hold signal — true while Space is held; a
+    // latched sub-frame Space tap additionally reports true for exactly one
+    // frame (README §8.1). Gamepad A is folded in below via the single poll.
+    const jumpHeld = this.isPressed('Space') || this.pendingJumpPress;
+    // The latched tap has now been observed (reported) for this frame.
+    this.pendingJumpPress = false;
 
     const reset = this.isPressed('KeyR');
 
@@ -101,6 +109,7 @@ export class PlayerController {
       this.target.removeEventListener('blur', this.onBlurBound as EventListener);
     }
     this.keyStates.clear();
+    this.pendingJumpPress = false;
     this.override = null;
     this.target = null;
   }
@@ -119,6 +128,11 @@ export class PlayerController {
       }
     }
 
+    if (e.code === 'Space') {
+      // Latch every Space key-down so a sub-frame tap survives until sampled.
+      this.pendingJumpPress = true;
+    }
+
     this.keyStates.set(e.code, true);
   }
 
@@ -128,24 +142,11 @@ export class PlayerController {
 
   private handleBlur(): void {
     this.keyStates.clear();
+    this.pendingJumpPress = false;
   }
 
   private isPressed(code: string): boolean {
     return this.keyStates.get(code) === true;
-  }
-
-  private pollGamepadButtonA(): boolean {
-    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') {
-      return false;
-    }
-    const gamepads = navigator.getGamepads();
-    if (!gamepads) return false;
-    for (let i = 0; i < gamepads.length; i++) {
-      const gp = gamepads[i];
-      if (!gp || !gp.connected) continue;
-      if (gp.buttons && gp.buttons[0]?.pressed) return true;
-    }
-    return false;
   }
 
   private pollGamepad(): Partial<PlayerInput> | null {

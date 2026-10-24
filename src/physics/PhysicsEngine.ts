@@ -27,6 +27,11 @@ export class PhysicsEngine {
   // Tracks the previous substep's continuous jump-hold signal so "release" is detected
   // exactly once across the multi-substep integration loop (ADR-0008 §1).
   private lastJumpHeld = false;
+  // ADR-0008 §1 fresh-key-down latch: set when the rider touches down while
+  // jumpHeld is still held, cleared only when a release is observed while
+  // grounded. While set, holding Space must NOT start a new charge — each new
+  // jump requires a fresh key-down after landing.
+  private requireFreshJumpPress = false;
 
   constructor(terrain: TerrainManager, config: GameConfig = DEFAULT_GAME_CONFIG) {
     this.terrain = terrain;
@@ -46,6 +51,7 @@ export class PhysicsEngine {
   public resetAtDropZone(dropZone: DropZone): PlayerState {
     this.state = this.buildInitialState(dropZone);
     this.lastJumpHeld = false;
+    this.requireFreshJumpPress = false;
     this.body.position.set(this.state.position.x, this.state.position.y, this.state.position.z);
     this.body.velocity.set(0, 0, 0);
     return this.getState();
@@ -89,19 +95,24 @@ export class PhysicsEngine {
     // 0. Charge-jump accumulation & release-to-launch (ADR-0008 §1)
     const jumpHeld = effectiveInput.jumpHeld;
     if (this.state.isGrounded && !this.state.isCrashed) {
-      if (jumpHeld) {
+      if (!jumpHeld) {
+        // A release observed while grounded re-arms the latch so the NEXT press
+        // counts as a fresh key-down (ADR-0008 §1 "no re-trigger").
+        this.requireFreshJumpPress = false;
+        if (this.lastJumpHeld && this.state.jumpCharge > 0) {
+          const impulse =
+            this.config.jumpMinImpulse +
+            this.state.jumpCharge * (this.config.jumpMaxImpulse - this.config.jumpMinImpulse);
+          this.state.velocity.y = impulse;
+          this.state.isGrounded = false;
+          this.state.jumpCharge = 0;
+          this.state.airtimeSeconds = 0;
+        }
+      } else if (!this.requireFreshJumpPress) {
         this.state.jumpCharge = Math.min(
           1.0,
           this.state.jumpCharge + dt / this.config.jumpChargeMaxSeconds
         );
-      } else if (this.lastJumpHeld && this.state.jumpCharge > 0) {
-        const impulse =
-          this.config.jumpMinImpulse +
-          this.state.jumpCharge * (this.config.jumpMaxImpulse - this.config.jumpMinImpulse);
-        this.state.velocity.y = impulse;
-        this.state.isGrounded = false;
-        this.state.jumpCharge = 0;
-        this.state.airtimeSeconds = 0;
       }
     }
 
@@ -115,15 +126,11 @@ export class PhysicsEngine {
       while (this.state.headingRad > Math.PI) this.state.headingRad -= 2 * Math.PI;
       while (this.state.headingRad < -Math.PI) this.state.headingRad += 2 * Math.PI;
     } else if (!this.state.isGrounded && !this.state.isCrashed) {
-      // Limited air steering + independent trick spin accumulation (ADR-0008 §4)
-      this.state.headingRad -=
-        effectiveInput.steer *
-        this.config.steerRateRadPerSec *
-        this.config.airSteerRateMultiplier *
-        dt;
+      // Airborne: A/D drives trick spin ONLY. headingRad stays frozen at its
+      // takeoff value, which equals the direction of travel (grounded velocity
+      // alignment) and is never modified while airborne — so FollowCamera stays
+      // locked behind the travel direction (owner PR-4 comment / README §8.3).
       this.state.spinRad += effectiveInput.steer * this.config.spinRateRadPerSec * dt;
-      while (this.state.headingRad > Math.PI) this.state.headingRad -= 2 * Math.PI;
-      while (this.state.headingRad < -Math.PI) this.state.headingRad += 2 * Math.PI;
     }
 
     // 2. Slope pitch at current coordinates along heading
@@ -134,12 +141,15 @@ export class PhysicsEngine {
     );
     this.state.pitchRad = pitch;
 
-    // 3. Roll angle (board bank leaning into the turn)
-    const targetRoll =
-      effectiveInput.steer * 0.35 +
-      (effectiveInput.carve > 0 && effectiveInput.steer !== 0
-        ? Math.sign(effectiveInput.steer) * 0.2
-        : 0);
+    // 3. Roll angle (board bank leaning into the turn) — grounded only. While
+    // airborne, A/D is a trick-spin input and must not bank the rider, so the
+    // roll target decays toward 0 in the air (ADR-0008 §4 / owner PR-4 comment).
+    const targetRoll = this.state.isGrounded
+      ? effectiveInput.steer * 0.35 +
+        (effectiveInput.carve > 0 && effectiveInput.steer !== 0
+          ? Math.sign(effectiveInput.steer) * 0.2
+          : 0)
+      : 0;
     this.state.rollRad += (targetRoll - this.state.rollRad) * Math.min(1.0, dt * 10);
 
     // 4. Trick grab state — reflects CURRENTLY held keys only, never latched (ADR-0008 §4/§5)
@@ -272,6 +282,12 @@ export class PhysicsEngine {
         this.state.isGrounded = true;
         this.state.airtimeSeconds = 0;
         this.state.velocity.y = 0;
+
+        // ADR-0008 §1: holding jumpHeld through a touchdown must NOT start a new
+        // charge — arm the fresh-press latch (cleared by a release while grounded).
+        if (jumpHeld) {
+          this.requireFreshJumpPress = true;
+        }
 
         const nearestHalf = Math.round(this.state.spinRad / Math.PI) * Math.PI;
         const alignmentError = Math.abs(this.state.spinRad - nearestHalf);
