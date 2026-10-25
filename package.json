@@ -9,6 +9,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "generate-glb": "tsx scripts/generate-glb.ts",
+    "generate-character": "tsx scripts/generate-character.ts",
     "fetch-terrain": "tsx scripts/fetch-terrain.ts"
   },
   "dependencies": {
