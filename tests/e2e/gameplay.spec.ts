@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import fs from 'node:fs';
+import path from 'node:path';
 
 test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)', () => {
   let consoleErrors: string[] = [];
@@ -42,6 +44,18 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
       } catch {
         route.continue();
       }
+    });
+
+    // Intercept GameApp and character references for E2E kinematics assertions
+    await page.addInitScript(() => {
+      const origBind = Function.prototype.bind;
+      Function.prototype.bind = function (thisArg: any, ...args: any[]) {
+        if (thisArg && thisArg.character && thisArg.character.boardGroup) {
+          (window as any).__OGSNOW_CHARACTER__ = thisArg.character;
+          (window as any).__OGSNOW_GAMEAPP__ = thisArg;
+        }
+        return origBind.apply(this, [thisArg, ...args]);
+      };
     });
 
     await page.goto('/');
@@ -609,6 +623,181 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
     const stanceAfterGrounded = await page.evaluate(() => window.__OGSNOW_STATE__.player);
     expect(stanceAfterGrounded.isGrounded).toBe(true);
     expect(stanceAfterGrounded.stanceRad).toBeCloseTo(Math.PI, 1);
+
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(false);
+    });
+  });
+
+  test('10. Character boardGroup rotates in lockstep with riderGroup during air spins and switch stance, and visual verification (ADR-0009)', async ({
+    page,
+  }) => {
+    // Drop in at summit express
+    await page.locator('[data-testid="drop-zone-btn-summit-express"]').click();
+    await page.waitForFunction(() => window.__OGSNOW_STATE__.mode === 'riding');
+    await expect(page.locator('#main-menu')).toBeHidden();
+    await page.waitForTimeout(350);
+
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.setPaused?.(true);
+    });
+
+    const screenshotDir =
+      process.env.SCREENSHOT_DIR ||
+      '/Users/reynish/.gemini/antigravity-cli/brain/f4a70d47-f141-43d2-b8f9-38c074e30a08';
+    if (!fs.existsSync(screenshotDir)) {
+      try {
+        fs.mkdirSync(screenshotDir, { recursive: true });
+      } catch {}
+    }
+
+    // Camera perspective helper to showcase the authentic 3D sideways snowboarder pose
+    const captureShowcaseScreenshot = async (filename: string) => {
+      // 3/4 front-side perspective showcasing toe-edge posture, flexed knees, bent elbows, and downhill goggles
+      await page.evaluate(() => {
+        const app = (window as any).__OGSNOW_GAMEAPP__;
+        if (app && app.camera && app.renderer) {
+          const p = app.physics.getState().position;
+          app.camera.camera.position.set(p.x + 1.6, p.y + 0.9, p.z + 1.3);
+          app.camera.camera.lookAt(p.x, p.y + 0.55, p.z);
+          app.renderer.render(app.scene, app.camera.camera);
+        }
+      });
+      const destPath = path.join(screenshotDir, filename);
+      await page.screenshot({ path: destPath });
+
+      // Restore camera to follow camera tracking
+      await page.evaluate(() => {
+        const app = (window as any).__OGSNOW_GAMEAPP__;
+        if (app && app.camera && app.renderer) {
+          app.camera.update(app.physics.getState(), 0.05);
+          app.renderer.render(app.scene, app.camera.camera);
+        }
+      });
+    };
+
+    // 1. Neutral riding stance
+    for (let i = 0; i < 20; i++) {
+      await page.evaluate(() => window.__OGSNOW_APP__?.stepSimulation(0.05, {}));
+    }
+
+    let rotCheck = await page.evaluate(() => {
+      const char = (window as any).__OGSNOW_CHARACTER__;
+      return {
+        boardYaw: char.boardGroup.rotation.y,
+        riderYaw: char.riderGroup.rotation.y,
+      };
+    });
+    expect(rotCheck.boardYaw).toBeCloseTo(rotCheck.riderYaw, 3);
+
+    await captureShowcaseScreenshot('pr7_fix_1_neutral_riding.png');
+
+    // 2. Full crouch (jumpCharge = 1.0)
+    for (let i = 0; i < 10; i++) {
+      await page.evaluate(() => window.__OGSNOW_APP__?.stepSimulation(0.05, { jumpHeld: true }));
+    }
+    const stateCrouch = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(stateCrouch.jumpCharge).toBeCloseTo(1.0, 1);
+    expect(stateCrouch.isGrounded).toBe(true);
+
+    rotCheck = await page.evaluate(() => {
+      const char = (window as any).__OGSNOW_CHARACTER__;
+      return {
+        boardYaw: char.boardGroup.rotation.y,
+        riderYaw: char.riderGroup.rotation.y,
+      };
+    });
+    expect(rotCheck.boardYaw).toBeCloseTo(rotCheck.riderYaw, 3);
+
+    await captureShowcaseScreenshot('pr7_fix_2_full_crouch.png');
+
+    // 3. Release to launch & spin to ~90° (spinRad ≈ π/2)
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.stepSimulation(0.016, { jumpHeld: false });
+    });
+    for (let i = 0; i < 10; i++) {
+      await page.evaluate(() => window.__OGSNOW_APP__?.stepSimulation(0.05, { steer: 1.0 }));
+    }
+    const stateSpin = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(stateSpin.isGrounded).toBe(false);
+    expect(Math.abs(stateSpin.spinRad)).toBeGreaterThan(1.2);
+
+    rotCheck = await page.evaluate(() => {
+      const char = (window as any).__OGSNOW_CHARACTER__;
+      return {
+        boardYaw: char.boardGroup.rotation.y,
+        riderYaw: char.riderGroup.rotation.y,
+      };
+    });
+    // In air, boardGroup.rotation.y matches riderGroup.rotation.y in lockstep
+    expect(rotCheck.boardYaw).toBeCloseTo(rotCheck.riderYaw, 3);
+
+    await captureShowcaseScreenshot('pr7_fix_3_air_spin_90.png');
+
+    // 4. Airborne Grab A (Indy / Method) — step 4 frames so smoothing reaches full depth
+    for (let i = 0; i < 4; i++) {
+      await page.evaluate(() => window.__OGSNOW_APP__?.stepSimulation(0.05, { tuck: true }));
+    }
+    const stateGrab = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(stateGrab.isGrounded).toBe(false);
+    expect(stateGrab.activeGrab).toBe('A');
+
+    rotCheck = await page.evaluate(() => {
+      const char = (window as any).__OGSNOW_CHARACTER__;
+      return {
+        boardYaw: char.boardGroup.rotation.y,
+        riderYaw: char.riderGroup.rotation.y,
+      };
+    });
+    expect(rotCheck.boardYaw).toBeCloseTo(rotCheck.riderYaw, 3);
+
+    await captureShowcaseScreenshot('pr7_fix_4_air_grab_a.png');
+
+    // 5. Release grab, complete 180° spin, land clean in switch stance (stanceRad ≈ π)
+    await page.evaluate(() => {
+      window.__OGSNOW_APP__?.stepSimulation(0.05, { tuck: false });
+    });
+    for (let i = 0; i < 11; i++) {
+      await page.evaluate(() => window.__OGSNOW_APP__?.stepSimulation(0.05, { steer: 1.0 }));
+    }
+
+    // Touchdown
+    for (let i = 0; i < 80; i++) {
+      const isGrounded = await page.evaluate(() => window.__OGSNOW_STATE__.player.isGrounded);
+      if (isGrounded) break;
+      await page.evaluate(() => window.__OGSNOW_APP__?.stepSimulation(0.05, {}));
+    }
+
+    const stateLand = await page.evaluate(() => window.__OGSNOW_STATE__.player);
+    expect(stateLand.isGrounded).toBe(true);
+    expect(stateLand.isCrashed).toBe(false);
+
+    // Step grounded frames for switch stance shortest-path ease
+    for (let i = 0; i < 20; i++) {
+      await page.evaluate(() => window.__OGSNOW_APP__?.stepSimulation(0.05, {}));
+    }
+
+    rotCheck = await page.evaluate(() => {
+      const char = (window as any).__OGSNOW_CHARACTER__;
+      return {
+        boardYaw: char.boardGroup.rotation.y,
+        riderYaw: char.riderGroup.rotation.y,
+      };
+    });
+    expect(rotCheck.boardYaw).toBeCloseTo(rotCheck.riderYaw, 3);
+
+    // Verify all 4 screenshots exist on disk and have non-zero file sizes
+    const expectedScreenshots = [
+      'pr7_fix_1_neutral_riding.png',
+      'pr7_fix_2_full_crouch.png',
+      'pr7_fix_3_air_spin_90.png',
+      'pr7_fix_4_air_grab_a.png',
+    ];
+    for (const name of expectedScreenshots) {
+      const full = path.join(screenshotDir, name);
+      expect(fs.existsSync(full), `Screenshot ${name} should exist on disk`).toBe(true);
+      expect(fs.statSync(full).size, `Screenshot ${name} should be non-empty`).toBeGreaterThan(1000);
+    }
 
     await page.evaluate(() => {
       window.__OGSNOW_APP__?.setPaused?.(false);
