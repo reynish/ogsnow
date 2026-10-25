@@ -12,28 +12,72 @@ interface Particle {
   maxLife: number;
 }
 
+const BONE_ALIASES: Record<string, string[]> = {
+  Hips: ['Hips', 'mixamorig:Hips', 'hips', 'hip'],
+  Spine: ['Spine', 'mixamorig:Spine', 'spine', 'Spine1', 'mixamorig:Spine1', 'Chest', 'mixamorig:Spine2', 'Spine2', 'mixamorig:Chest'],
+  Head: ['Head', 'mixamorig:Head', 'head'],
+  RightLeg: ['RightUpLeg', 'mixamorig:RightUpLeg', 'RightLeg', 'mixamorig:RightLeg', 'rightUpLeg', 'rightLeg'],
+  LeftLeg: ['LeftUpLeg', 'mixamorig:LeftUpLeg', 'LeftLeg', 'mixamorig:LeftLeg', 'leftUpLeg', 'leftLeg'],
+  RightArm: ['RightUpperArm', 'mixamorig:RightUpperArm', 'RightArm', 'mixamorig:RightArm', 'rightUpperArm', 'rightArm', 'RightShoulder', 'mixamorig:RightShoulder'],
+  LeftArm: ['LeftUpperArm', 'mixamorig:LeftUpperArm', 'LeftArm', 'mixamorig:LeftArm', 'leftUpperArm', 'leftArm', 'LeftShoulder', 'mixamorig:LeftShoulder'],
+};
+
+const MATERIAL_OVERRIDES = {
+  pants: { color: 0x4a154b, roughness: 0.85, flatShading: true },
+  jacket: { color: 0xff3366, roughness: 0.8, flatShading: true },
+  beanie: { color: 0xffcc00, roughness: 0.9, flatShading: true },
+  skin: { color: 0xf3b07c, roughness: 0.8, flatShading: true },
+  goggles: { color: 0x00f0ff, roughness: 0.2, metalness: 0.8, flatShading: true },
+  boots: { color: 0x1f2421, roughness: 0.9, flatShading: true },
+} as const;
+
+const MESH_MATERIAL_MAP: Record<string, string[]> = {
+  pants: ['hips_mesh', 'left_up_leg_mesh', 'right_up_leg_mesh'],
+  jacket: ['spine_mesh', 'chest_mesh', 'left_upper_arm_mesh', 'right_upper_arm_mesh'],
+  beanie: ['beanie_mesh'],
+  skin: ['head_mesh', 'left_lower_arm_mesh', 'right_lower_arm_mesh'],
+  goggles: ['goggles_mesh'],
+  boots: ['left_leg_mesh', 'right_leg_mesh'],
+};
+
 export class SnowboardCharacter {
   public readonly group: THREE.Group;
   public readonly boardMesh: THREE.Mesh;
   public readonly riderGroup: THREE.Group;
 
-  // Animatable rider meshes (promoted from constructor locals for update())
-  private torso: THREE.Mesh;
-  private hips: THREE.Mesh;
-  private frontLeg: THREE.Mesh;
-  private backLeg: THREE.Mesh;
-  private frontArm: THREE.Mesh;
-  private backArm: THREE.Mesh;
+  // Animatable rider parts (meshes in fallback, bones in loaded GLB)
+  private torso: THREE.Object3D | null = null;
+  private hips: THREE.Object3D | null = null;
+  private frontLeg: THREE.Object3D | null = null;
+  private backLeg: THREE.Object3D | null = null;
+  private frontArm: THREE.Object3D | null = null;
+  private backArm: THREE.Object3D | null = null;
+
+  // GLB state
+  private glbLoaded = false;
+  private boneMap = new Map<string, THREE.Bone>();
+  private originalBoneStates = new Map<string, { quaternion: THREE.Quaternion; position: THREE.Vector3 }>();
+
+  // Base pose values (rest pose for bones, hard-coded for fallback meshes)
+  private baseHipsY = 0.58;
+  private baseTorsoY = 0.88;
+  private baseTorsoRotX = 0;
+  private baseFrontLegRotX = 0.2;
+  private baseBackLegRotX = -0.2;
+  private baseFrontArmRotX = 0.4;
+  private baseFrontArmRotZ = -0.5;
+  private baseBackArmRotX = -0.4;
+  private baseBackArmRotZ = 0.5;
 
   // Landing squash state
-  private wasAirborne: boolean = false;
-  private landingSquashTimer: number = 0;
-  private readonly landingSquashDuration: number = 0.15;
+  private wasAirborne = false;
+  private landingSquashTimer = 0;
+  private readonly landingSquashDuration = 0.15;
 
   private sprayParticles: Particle[] = [];
   private sprayGeometry: THREE.BufferGeometry;
   private sprayPoints: THREE.Points;
-  private maxParticles: number = 100;
+  private maxParticles = 100;
   private particlePositions: Float32Array;
 
   constructor() {
@@ -43,7 +87,7 @@ export class SnowboardCharacter {
     // 1. Construct Snowboard Mesh
     const boardGeo = new THREE.BoxGeometry(0.32, 0.04, 1.6);
     const boardMat = new THREE.MeshStandardMaterial({
-      color: 0x00e5ff, // Vibrant neon cyan
+      color: 0x00e5ff,
       roughness: 0.4,
       metalness: 0.1,
       flatShading: true,
@@ -62,7 +106,7 @@ export class SnowboardCharacter {
     });
     const frontBinding = new THREE.Mesh(bindingGeo, bindingMat);
     frontBinding.position.set(0, 0.04, 0.35);
-    frontBinding.rotation.y = 0.35; // Snowboarder angled stance
+    frontBinding.rotation.y = 0.35;
     this.group.add(frontBinding);
 
     const backBinding = new THREE.Mesh(bindingGeo, bindingMat);
@@ -70,113 +114,8 @@ export class SnowboardCharacter {
     backBinding.rotation.y = 0.15;
     this.group.add(backBinding);
 
-    // 2. Construct Low-Poly PS1 Snowboarder Rider Group
-    this.riderGroup = new THREE.Group();
-    this.riderGroup.name = 'rider_group';
-
-    // Materials
-    const bootMat = new THREE.MeshStandardMaterial({
-      color: 0x1f2421,
-      flatShading: true,
-      roughness: 0.9,
-    });
-    const pantsMat = new THREE.MeshStandardMaterial({
-      color: 0x4a154b, // 90s baggy purple pants
-      flatShading: true,
-      roughness: 0.85,
-    });
-    const jacketMat = new THREE.MeshStandardMaterial({
-      color: 0xff3366, // Retro neon magenta jacket
-      flatShading: true,
-      roughness: 0.8,
-    });
-    const skinMat = new THREE.MeshStandardMaterial({
-      color: 0xf3b07c,
-      flatShading: true,
-      roughness: 0.8,
-    });
-    const beanieMat = new THREE.MeshStandardMaterial({
-      color: 0xffcc00, // Vibrant yellow beanie
-      flatShading: true,
-      roughness: 0.9,
-    });
-    const goggleMat = new THREE.MeshStandardMaterial({
-      color: 0x00f0ff, // Mirrored cyan goggle lens
-      roughness: 0.2,
-      metalness: 0.8,
-    });
-
-    // Boots
-    const bootGeo = new THREE.BoxGeometry(0.18, 0.14, 0.26);
-    const frontBoot = new THREE.Mesh(bootGeo, bootMat);
-    frontBoot.position.set(0, 0.09, 0.35);
-    frontBoot.rotation.y = 0.35;
-    this.riderGroup.add(frontBoot);
-
-    const backBoot = new THREE.Mesh(bootGeo, bootMat);
-    backBoot.position.set(0, 0.09, -0.35);
-    backBoot.rotation.y = 0.15;
-    this.riderGroup.add(backBoot);
-
-    // Legs / Snow pants (bent knees stance)
-    const legGeo = new THREE.BoxGeometry(0.18, 0.45, 0.2);
-    this.frontLeg = new THREE.Mesh(legGeo, pantsMat);
-    this.frontLeg.position.set(0, 0.35, 0.3);
-    this.frontLeg.rotation.set(0.2, 0.35, -0.15);
-    this.riderGroup.add(this.frontLeg);
-
-    this.backLeg = new THREE.Mesh(legGeo, pantsMat);
-    this.backLeg.position.set(0, 0.35, -0.3);
-    this.backLeg.rotation.set(-0.2, 0.15, -0.15);
-    this.riderGroup.add(this.backLeg);
-
-    // Pelvis / Hips
-    const hipsGeo = new THREE.BoxGeometry(0.36, 0.22, 0.48);
-    this.hips = new THREE.Mesh(hipsGeo, pantsMat);
-    this.hips.position.set(0, 0.58, 0.0);
-    this.hips.rotation.y = 0.25;
-    this.riderGroup.add(this.hips);
-
-    // Torso / Jacket
-    const torsoGeo = new THREE.BoxGeometry(0.38, 0.48, 0.44);
-    this.torso = new THREE.Mesh(torsoGeo, jacketMat);
-    this.torso.position.set(0, 0.88, 0.0);
-    this.torso.rotation.y = 0.3;
-    this.riderGroup.add(this.torso);
-
-    // Arms & Mittens (outstretched for snowboard balance)
-    const armGeo = new THREE.BoxGeometry(0.12, 0.38, 0.12);
-    this.frontArm = new THREE.Mesh(armGeo, jacketMat);
-    this.frontArm.position.set(0.18, 0.88, 0.32);
-    this.frontArm.rotation.set(0.4, 0, -0.5);
-    this.riderGroup.add(this.frontArm);
-
-    this.backArm = new THREE.Mesh(armGeo, jacketMat);
-    this.backArm.position.set(-0.18, 0.88, -0.32);
-    this.backArm.rotation.set(-0.4, 0, 0.5);
-    this.riderGroup.add(this.backArm);
-
-    // Head
-    const headGeo = new THREE.BoxGeometry(0.22, 0.24, 0.22);
-    const head = new THREE.Mesh(headGeo, skinMat);
-    head.position.set(0, 1.22, 0.0);
-    head.rotation.y = 0.2;
-    this.riderGroup.add(head);
-
-    // Beanie
-    const beanieGeo = new THREE.BoxGeometry(0.24, 0.16, 0.24);
-    const beanie = new THREE.Mesh(beanieGeo, beanieMat);
-    beanie.position.set(0, 1.34, 0.0);
-    beanie.rotation.y = 0.2;
-    this.riderGroup.add(beanie);
-
-    // Goggles
-    const goggleGeo = new THREE.BoxGeometry(0.12, 0.08, 0.2);
-    const goggles = new THREE.Mesh(goggleGeo, goggleMat);
-    goggles.position.set(0.11, 1.22, 0.0);
-    goggles.rotation.y = 0.2;
-    this.riderGroup.add(goggles);
-
+    // 2. Construct Low-Poly PS1 Snowboarder Rider Group (procedural fallback)
+    this.riderGroup = this.buildProceduralRider();
     this.group.add(this.riderGroup);
 
     // 3. Snow Spray Particle System
@@ -210,11 +149,228 @@ export class SnowboardCharacter {
     this.sprayPoints = new THREE.Points(this.sprayGeometry, sprayMat);
     this.sprayPoints.frustumCulled = false;
     this.group.add(this.sprayPoints);
+
+    // 4. Async load rigged GLB (swaps in when ready; fallback stays active otherwise)
+    this.loadGlbAsync();
+  }
+
+  private buildProceduralRider(): THREE.Group {
+    const riderGroup = new THREE.Group();
+    riderGroup.name = 'rider_group';
+
+    // Materials
+    const bootMat = new THREE.MeshStandardMaterial({
+      color: 0x1f2421,
+      flatShading: true,
+      roughness: 0.9,
+    });
+    const pantsMat = new THREE.MeshStandardMaterial({
+      color: 0x4a154b,
+      flatShading: true,
+      roughness: 0.85,
+    });
+    const jacketMat = new THREE.MeshStandardMaterial({
+      color: 0xff3366,
+      flatShading: true,
+      roughness: 0.8,
+    });
+    const skinMat = new THREE.MeshStandardMaterial({
+      color: 0xf3b07c,
+      flatShading: true,
+      roughness: 0.8,
+    });
+    const beanieMat = new THREE.MeshStandardMaterial({
+      color: 0xffcc00,
+      flatShading: true,
+      roughness: 0.9,
+    });
+    const goggleMat = new THREE.MeshStandardMaterial({
+      color: 0x00f0ff,
+      roughness: 0.2,
+      metalness: 0.8,
+    });
+
+    // Boots
+    const bootGeo = new THREE.BoxGeometry(0.18, 0.14, 0.26);
+    const frontBoot = new THREE.Mesh(bootGeo, bootMat);
+    frontBoot.position.set(0, 0.09, 0.35);
+    frontBoot.rotation.y = 0.35;
+    riderGroup.add(frontBoot);
+
+    const backBoot = new THREE.Mesh(bootGeo, bootMat);
+    backBoot.position.set(0, 0.09, -0.35);
+    backBoot.rotation.y = 0.15;
+    riderGroup.add(backBoot);
+
+    // Legs
+    const legGeo = new THREE.BoxGeometry(0.18, 0.45, 0.2);
+    this.frontLeg = new THREE.Mesh(legGeo, pantsMat);
+    this.frontLeg.position.set(0, 0.35, 0.3);
+    this.frontLeg.rotation.set(0.2, 0.35, -0.15);
+    riderGroup.add(this.frontLeg);
+
+    this.backLeg = new THREE.Mesh(legGeo, pantsMat);
+    this.backLeg.position.set(0, 0.35, -0.3);
+    this.backLeg.rotation.set(-0.2, 0.15, -0.15);
+    riderGroup.add(this.backLeg);
+
+    // Hips
+    const hipsGeo = new THREE.BoxGeometry(0.36, 0.22, 0.48);
+    this.hips = new THREE.Mesh(hipsGeo, pantsMat);
+    this.hips.position.set(0, 0.58, 0.0);
+    this.hips.rotation.y = 0.25;
+    riderGroup.add(this.hips);
+
+    // Torso
+    const torsoGeo = new THREE.BoxGeometry(0.38, 0.48, 0.44);
+    this.torso = new THREE.Mesh(torsoGeo, jacketMat);
+    this.torso.position.set(0, 0.88, 0.0);
+    this.torso.rotation.y = 0.3;
+    riderGroup.add(this.torso);
+
+    // Arms
+    const armGeo = new THREE.BoxGeometry(0.12, 0.38, 0.12);
+    this.frontArm = new THREE.Mesh(armGeo, jacketMat);
+    this.frontArm.position.set(0.18, 0.88, 0.32);
+    this.frontArm.rotation.set(0.4, 0, -0.5);
+    riderGroup.add(this.frontArm);
+
+    this.backArm = new THREE.Mesh(armGeo, jacketMat);
+    this.backArm.position.set(-0.18, 0.88, -0.32);
+    this.backArm.rotation.set(-0.4, 0, 0.5);
+    riderGroup.add(this.backArm);
+
+    // Head
+    const headGeo = new THREE.BoxGeometry(0.22, 0.24, 0.22);
+    const head = new THREE.Mesh(headGeo, skinMat);
+    head.position.set(0, 1.22, 0.0);
+    head.rotation.y = 0.2;
+    riderGroup.add(head);
+
+    // Beanie
+    const beanieGeo = new THREE.BoxGeometry(0.24, 0.16, 0.24);
+    const beanie = new THREE.Mesh(beanieGeo, beanieMat);
+    beanie.position.set(0, 1.34, 0.0);
+    beanie.rotation.y = 0.2;
+    riderGroup.add(beanie);
+
+    // Goggles
+    const goggleGeo = new THREE.BoxGeometry(0.12, 0.08, 0.2);
+    const goggles = new THREE.Mesh(goggleGeo, goggleMat);
+    goggles.position.set(0.11, 1.22, 0.0);
+    goggles.rotation.y = 0.2;
+    riderGroup.add(goggles);
+
+    return riderGroup;
+  }
+
+  private async loadGlbAsync(): Promise<void> {
+    try {
+      const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+      const loader = new GLTFLoader();
+      const gltf = await loader.loadAsync('assets/character/rider.glb');
+
+      const scene = gltf.scene;
+
+      // Apply material overrides
+      scene.traverse((obj) => {
+        if ((obj as THREE.Mesh).isMesh) {
+          const mesh = obj as THREE.Mesh;
+          const matName = (mesh.material as THREE.Material)?.name;
+          let spec: (typeof MATERIAL_OVERRIDES)[keyof typeof MATERIAL_OVERRIDES] | undefined;
+
+          if (matName && matName in MATERIAL_OVERRIDES) {
+            spec = MATERIAL_OVERRIDES[matName as keyof typeof MATERIAL_OVERRIDES];
+          } else {
+            for (const [key, meshNames] of Object.entries(MESH_MATERIAL_MAP)) {
+              if (meshNames.includes(mesh.name)) {
+                spec = MATERIAL_OVERRIDES[key as keyof typeof MATERIAL_OVERRIDES];
+                break;
+              }
+            }
+          }
+
+          if (spec) {
+            mesh.material = new THREE.MeshStandardMaterial(spec);
+          } else {
+            const oldMat = mesh.material as THREE.MeshStandardMaterial | undefined;
+            if (oldMat) {
+              mesh.material = new THREE.MeshStandardMaterial({
+                color: oldMat.color,
+                roughness: oldMat.roughness ?? 0.8,
+                metalness: (oldMat as any).metalness ?? 0,
+                flatShading: true,
+              });
+            }
+          }
+        }
+      });
+
+      // Build bone name → Bone map with aliases
+      const aliasMap = new Map<string, string>();
+      for (const [canonical, aliases] of Object.entries(BONE_ALIASES)) {
+        for (const alias of aliases) {
+          aliasMap.set(alias.toLowerCase(), canonical);
+        }
+      }
+
+      scene.traverse((obj) => {
+        if ((obj as THREE.Bone).isBone) {
+          const bone = obj as THREE.Bone;
+          const canonical = aliasMap.get(bone.name.toLowerCase());
+          if (canonical) {
+            this.boneMap.set(canonical, bone);
+          }
+        }
+      });
+
+      // Verify critical bones exist
+      const required = ['Hips', 'Spine', 'RightArm', 'LeftArm'];
+      const missing = required.filter((b) => !this.boneMap.has(b));
+      if (missing.length > 0) {
+        console.warn('Loaded rider.glb but missing required bones:', missing.join(', '));
+        return;
+      }
+
+      // Save original bone transforms so reset() can restore them
+      for (const bone of this.boneMap.values()) {
+        this.originalBoneStates.set(bone.name, {
+          quaternion: bone.quaternion.clone(),
+          position: bone.position.clone(),
+        });
+      }
+
+      // Replace procedural riderGroup contents with loaded model
+      this.riderGroup.clear();
+      this.riderGroup.add(scene);
+
+      // Map animatable parts to bones (update() and tests read these)
+      this.hips = this.boneMap.get('Hips') ?? null;
+      this.torso = this.boneMap.get('Spine') ?? null;
+      this.frontLeg = this.boneMap.get('RightLeg') ?? null;
+      this.backLeg = this.boneMap.get('LeftLeg') ?? null;
+      this.frontArm = this.boneMap.get('RightArm') ?? null;
+      this.backArm = this.boneMap.get('LeftArm') ?? null;
+
+      // Capture base transforms from the model's bind pose so poses are relative
+      if (this.hips) this.baseHipsY = this.hips.position.y;
+      if (this.torso) this.baseTorsoY = this.torso.position.y;
+      if (this.torso) this.baseTorsoRotX = this.torso.rotation.x;
+      if (this.frontLeg) this.baseFrontLegRotX = this.frontLeg.rotation.x;
+      if (this.backLeg) this.baseBackLegRotX = this.backLeg.rotation.x;
+      if (this.frontArm) this.baseFrontArmRotX = this.frontArm.rotation.x;
+      if (this.frontArm) this.baseFrontArmRotZ = this.frontArm.rotation.z;
+      if (this.backArm) this.baseBackArmRotX = this.backArm.rotation.x;
+      if (this.backArm) this.baseBackArmRotZ = this.backArm.rotation.z;
+
+      this.glbLoaded = true;
+    } catch (err) {
+      console.warn('Failed to load rider.glb, using procedural fallback:', err);
+    }
   }
 
   public update(state: PlayerState, dtSeconds: number): void {
     const dt = Math.min(Math.max(0, dtSeconds), 0.1);
-    // Smoothing factor for pose interpolation (frame-rate independent-ish)
     const k = Math.min(1, dt * 12);
 
     // 1. World Position
@@ -227,6 +383,10 @@ export class SnowboardCharacter {
     this.group.rotation.z = -state.rollRad;
 
     // 3. Rider Dynamics (Carve crouch, jump charge crouch, spin, grab, wipeout tumble)
+    if (!this.hips || !this.torso || !this.frontLeg || !this.backLeg || !this.frontArm || !this.backArm) {
+      return;
+    }
+
     if (state.isCrashed) {
       // PS1-style wipeout tumble (crash takes precedence)
       this.landingSquashTimer = 0;
@@ -259,11 +419,11 @@ export class SnowboardCharacter {
       // Crouch / wind-up pose from jumpCharge (0..1). Targets match the
       // neutral stance exactly when jumpCharge === 0.
       const jumpCharge = Math.min(1, Math.max(0, state.jumpCharge));
-      const hipsTargetY = 0.58 - jumpCharge * 0.15;
-      const torsoTargetY = 0.88 - jumpCharge * 0.2;
-      const torsoTargetRotX = jumpCharge * 0.3;
-      const frontLegTargetX = 0.2 + jumpCharge * 0.25;
-      const backLegTargetX = -0.2 - jumpCharge * 0.2;
+      const hipsTargetY = this.baseHipsY - jumpCharge * 0.15;
+      const torsoTargetY = this.baseTorsoY - jumpCharge * 0.2;
+      const torsoTargetRotX = this.baseTorsoRotX + jumpCharge * 0.3;
+      const frontLegTargetX = this.baseFrontLegRotX + jumpCharge * 0.25;
+      const backLegTargetX = this.baseBackLegRotX - jumpCharge * 0.2;
       const boardTargetScaleY = 1.0 + jumpCharge * 0.1;
 
       this.hips.position.y += (hipsTargetY - this.hips.position.y) * k;
@@ -274,20 +434,20 @@ export class SnowboardCharacter {
       this.boardMesh.scale.y += (boardTargetScaleY - this.boardMesh.scale.y) * k;
 
       // Grab poses while airborne; neutral outstretched pose on the ground.
-      let frontArmTargetX = 0.4;
-      let frontArmTargetZ = -0.5;
-      let backArmTargetX = -0.4;
-      let backArmTargetZ = 0.5;
+      let frontArmTargetX = this.baseFrontArmRotX;
+      let frontArmTargetZ = this.baseFrontArmRotZ;
+      let backArmTargetX = this.baseBackArmRotX;
+      let backArmTargetZ = this.baseBackArmRotZ;
 
       if (!state.isGrounded) {
         if (state.activeGrab === 'A') {
           // indy/method: reach front arm toward the board nose
-          frontArmTargetX = 0.8;
-          frontArmTargetZ = -0.6;
+          frontArmTargetX = this.baseFrontArmRotX + 0.4;
+          frontArmTargetZ = this.baseFrontArmRotZ - 0.1;
         } else if (state.activeGrab === 'B') {
           // melon/tail: reach back arm toward the board tail
-          backArmTargetX = -0.9;
-          backArmTargetZ = 0.7;
+          backArmTargetX = this.baseBackArmRotX - 0.5;
+          backArmTargetZ = this.baseBackArmRotZ + 0.2;
         }
       }
 
@@ -321,6 +481,32 @@ export class SnowboardCharacter {
 
     // 6. Update Snow Spray Particles
     this.updateParticles(state, dt);
+  }
+
+  public reset(): void {
+    this.landingSquashTimer = 0;
+    this.wasAirborne = false;
+    this.riderGroup.scale.set(1, 1, 1);
+    this.riderGroup.position.set(0, 0, 0);
+    this.riderGroup.rotation.set(0, 0, 0);
+    this.boardMesh.scale.set(1, 1, 1);
+
+    for (let i = 0; i < this.maxParticles; i++) {
+      this.sprayParticles[i].life = 0;
+      this.particlePositions[i * 3 + 1] = -1000;
+    }
+    this.sprayGeometry.attributes.position.needsUpdate = true;
+
+    // Restore original bone poses if GLB is loaded
+    if (this.glbLoaded) {
+      for (const [name, state] of this.originalBoneStates) {
+        const bone = this.boneMap.get(name);
+        if (bone) {
+          bone.quaternion.copy(state.quaternion);
+          bone.position.copy(state.position);
+        }
+      }
+    }
   }
 
   private updateParticles(state: PlayerState, dt: number): void {
