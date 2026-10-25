@@ -48,16 +48,19 @@ flowchart LR
         GLBAsset["whistler-peak.glb (Render Mesh + Metadata Extras)"]
         DEMAsset["whistler-dem.bin (Float32 Heightfield)"]
         ManifestAsset["whistler-terrain.json (Provenance, DropZones, Obstacles, Attribution)"]
+        CharGLBAsset["character/rider.glb (12-Bone Skinned Low-Poly Snowboarder)"]
     end
 
     subgraph BuildTime["Build-Time Pipeline (Node, not shipped to browser)"]
         FetchScript["scripts/fetch-terrain.ts (Network One-Shot)"]
         GenScript["scripts/generate-glb.ts (Offline Deterministic Derivation)"]
+        GenCharScript["scripts/generate-character.ts (Offline 12-Bone Character GLB Generator)"]
     end
 
     UIContainer -->|"Selects Mountain & DropZone / Reads Telemetry & Attribution"| GameCore
     GameCore -->|"Steps Simulation (dt) & Reads PlayerInput"| PhysicsWorld
     GLBAsset -->|"Loads .glb Mesh"| RenderEngine
+    CharGLBAsset -->|"Loads Rigged 12-Bone SkinnedMesh"| RenderEngine
     DEMAsset -->|"Provides Height / Normal Queries"| PhysicsWorld
     ManifestAsset -->|"Provides DropZones, Obstacles, Provenance & Attribution"| GameCore
     PhysicsWorld -->|"Updates PlayerState (Position, Velocity, Pitch, Grounded)"| GameCore
@@ -68,6 +71,7 @@ flowchart LR
     FetchScript -->|"Writes Provenance Manifest"| ManifestAsset
     GenScript -->|"Reads committed .bin + .json, derives, exports"| GLBAsset
     GenScript -->|"Enriches Manifest with DropZones + Obstacles"| ManifestAsset
+    GenCharScript -->|"Exports Sideways Athletic 12-Bone SkinnedMesh"| CharGLBAsset
 ```
 
 ---
@@ -141,9 +145,10 @@ flowchart TD
 | `TerrainManager` | `src/terrain/TerrainManager.ts` | Loads committed `.glb` + `.json` + `.bin`, reconstructs `TerrainData`, manages mesh + obstacles, bilinear `getHeightAt(x,z)`/`getNormalAt(x,z)`. |
 | `Fetch` | `scripts/fetch-terrain.ts` | Node CLI (`npm run fetch-terrain -- --mountain <id>`): downloads pinned tiles → `.cache/terrain/`, decodes/reprojects/resamples, writes `<id>-dem.bin` + `<id>-terrain.json`. |
 | `Gen` | `scripts/generate-glb.ts` | Node CLI (offline): reads committed `.bin` + `.json`, runs derivation, exports deterministic `.glb`, enriches manifest. |
+| `GenChar` | `scripts/generate-character.ts` | Node CLI (offline): builds the 12-bone sideways athletic snowboarder skeleton & low-poly skinned meshes (`Hips`, `Spine`, `Chest`, `Head`, `LeftUpperArm`, `LeftLowerArm`, `RightUpperArm`, `RightLowerArm`, `LeftUpLeg`, `LeftLeg`, `RightUpLeg`, `RightLeg`) with 3D knee flex, forward torso hinge, elbow bend, and downhill head/goggles, and exports `public/assets/character/rider.glb`. |
 | `PhysicsEngine` | `src/physics/PhysicsEngine.ts` | `cannon-es` world + slope-aligned snowboard dynamics: gravity projection along slope normal, carving deceleration, edge grip, obstacle/boundary collisions, crash recovery, airtime detection, **charge-jump mechanics** (Iteration 3: `jumpCharge` accumulation + release-to-launch), **frozen air heading** (`headingRad` locked at takeoff; `A`/`D` spins only), **spin accumulation** (`spinRad`, ADR-0006 sign convention), **switch-stance persistence** (`stanceRad` absorbs nearest-180° multiple on clean landing; reset on crash/reset), and **trick landing evaluation** (alignment tolerance + grab-on-touchdown crash rule). |
 | `InputController` | `src/player/PlayerController.ts` | Captures keyboard (`WASD` / Arrow keys / `Space` / `R`) and Gamepad inputs, plus programmatic input injection for E2E testing. |
-| `SnowboardCharacter` | `src/player/SnowboardCharacter.ts` | Low-poly PS1-style 3D snowboarder + board mesh hierarchy with procedural lean, carve tilt, pitch alignment, snow spray particles, **crouch/wind-up pose** (Iteration 3: interpolated from `jumpCharge`), **spin visual rotation** (`spinRad` + persistent `stanceRad` yaw; grounded shortest-path ease to stance), **grab A/B arm poses** (`activeGrab`), and **landing squash** (brief compression on touchdown). |
+| `SnowboardCharacter` | `src/player/SnowboardCharacter.ts` | Rigged 12-bone PS1-style 3D snowboarder (`rider.glb` with procedural fallback) + **lockstep-coupled board & bindings** (`boardMesh`, `frontBinding`, `backBinding` rotating with `stanceRad + spinRad` and rising/tilting with tucked feet during crouch/grabs), **full 12-bone foot-anchored kinematics** (upper/lower leg counter-flex keeping boots planted at `z = ±0.35`, spine/chest coil, downhill head tracking, upper/lower arm Grab A Indy/Method & Grab B Melon/Tail articulation), **landing squash**, and snow spray particles. |
 | `FollowCamera` | `src/camera/FollowCamera.ts` | Third-person dynamic chase camera that interpolates position, look-at target, pitch tilt, and FOV (`62°` to `84°`) based on speed and slope pitch, with instant snap on drop-in/reset. |
 | `JungleAudioEngine` | `src/audio/JungleAudioEngine.ts` | Web Audio API procedural 170 BPM PS1 Jungle/Amen breakbeat synthesizer & mixer. |
 | `HUDManager` | `src/ui/HUDManager.ts` | Main menu mountain/drop-zone selector, attribution footer (`data-testid="terrain-attribution"`), HUD speedometer, altitude, audio stems, crash/airtime notifications, **controls legend overlay** (Iteration 3: charge-jump instructions and trick controls; no score display). |
@@ -366,3 +371,41 @@ sequenceDiagram
 **Airborne heading policy (ADR-0008, amended 2026-10-24):** while airborne the travel heading `headingRad` is **frozen** at its takeoff value — none of the airborne inputs above rotate the heading or the follow camera; `A`/`D` (or the stick) only spin the character (`spinRad`, sharing `headingRad`'s sign convention: `D` decrements → clockwise/screen-right). Steering authority returns on touchdown.
 
 **Switch-stance persistence (ADR-0008, round-2 amendment 2026-10-24):** a clean landing absorbs the nearest `180°` multiple of `spinRad` into `stanceRad` (`180°`/`540°` → switch/goofy, `360°`/`720°` → normal; crash/reset → normal). While grounded the character eases its visual yaw to `stanceRad` (shortest path); while airborne the visual yaw is `stanceRad + spinRad`. `stanceRad` is visual-only and never affects heading, velocity, or obstacles.
+
+---
+
+## 7. Iteration 4 & 4.1 — Rigged 12-Bone Character & Coupled Board Kinematics (ADR-0009)
+
+```mermaid
+flowchart TD
+    subgraph Root["this.group (world position + headingRad / pitchRad / -rollRad)"]
+        Spray["sprayPoints (snow spray particles)"]
+        subgraph Coupled["Coupled Yaw & Roll Hierarchy (rotates by stanceRad + spinRad)"]
+            BoardGrp["boardGroup / boardMesh + frontBinding (z=+0.35) + backBinding (z=-0.35)"]
+            subgraph RiderGrp["this.riderGroup (crouch / squash / tumble)"]
+                Hips["0: Hips (y ≈ 0.56, yaw ≈ 1.35 rad sideways toward +X toe edge)"]
+                Spine["1: Spine (forward hinge over toe edge +X)"]
+                Chest["2: Chest (athletic forward flex + downhill tilt)"]
+                Head["3: Head + beanie_mesh + goggles_mesh (counter-rotated on Y toward +Z downhill)"]
+                LUA["4: LeftUpperArm (back arm toward -Z tail)"]
+                LLA["5: LeftLowerArm (elbow flex ~0.65-0.85 rad + glove)"]
+                RUA["6: RightUpperArm (front arm toward +Z nose)"]
+                RLA["7: RightLowerArm (elbow flex ~0.65-0.85 rad + glove)"]
+                LUL["8: LeftUpLeg (back thigh angled to z ≈ -0.32, knee forward +X at y ≈ 0.31)"]
+                LL["9: LeftLeg (back shin/boot flexed ~0.55-0.70 rad to binding at z = -0.35)"]
+                RUL["10: RightUpLeg (front thigh angled to z ≈ +0.32, knee forward +X at y ≈ 0.31)"]
+                RL["11: RightLeg (front shin/boot flexed ~0.55-0.70 rad to binding at z = +0.35)"]
+            end
+        end
+    end
+
+    Hips --> Spine --> Chest
+    Chest --> Head
+    Chest --> LUA --> LLA
+    Chest --> RUA --> RLA
+    Hips --> LUL --> LL
+    Hips --> RUL --> RL
+```
+
+- **Lockstep Board-Rider Coupling:** `boardMesh`, `frontBinding`, and `backBinding` rotate identically with `riderGroup.rotation.y` (`stanceRad + spinRad` in air; shortest-path ease to `stanceRad` on snow) and elevate/tilt with the tucked feet during airborne grabs (`activeGrab === 'A' | 'B'`) so boots never separate from bindings.
+- **Foot-Anchored Crouch & Grabs:** When `Hips.position.y` drops by `jumpCharge * 0.15`, upper legs (`RightUpLeg`, `LeftUpLeg`) flex while lower legs (`RightLeg`, `LeftLeg`) counter-flex so the boots stay planted on the bindings (`y` within `±0.05` of binding height) rather than sinking through the board.
