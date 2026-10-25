@@ -642,9 +642,13 @@ test.describe('ogSnow Downhill Freeride — E2E Browser Verification (ADR-0005)'
       window.__OGSNOW_APP__?.setPaused?.(true);
     });
 
+    const localBrainDir =
+      '/Users/reynish/.gemini/antigravity-cli/brain/f4a70d47-f141-43d2-b8f9-38c074e30a08';
     const screenshotDir =
       process.env.SCREENSHOT_DIR ||
-      '/Users/reynish/.gemini/antigravity-cli/brain/f4a70d47-f141-43d2-b8f9-38c074e30a08';
+      (fs.existsSync(localBrainDir)
+        ? localBrainDir
+        : path.resolve(process.cwd(), 'test-results/screenshots'));
     if (!fs.existsSync(screenshotDir)) {
       try {
         fs.mkdirSync(screenshotDir, { recursive: true });
