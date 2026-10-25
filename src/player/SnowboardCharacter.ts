@@ -14,12 +14,17 @@ interface Particle {
 
 const BONE_ALIASES: Record<string, string[]> = {
   Hips: ['Hips', 'mixamorig:Hips', 'hips', 'hip'],
-  Spine: ['Spine', 'mixamorig:Spine', 'spine', 'Spine1', 'mixamorig:Spine1', 'Chest', 'mixamorig:Spine2', 'Spine2', 'mixamorig:Chest'],
+  Spine: ['Spine', 'mixamorig:Spine', 'spine', 'Spine1', 'mixamorig:Spine1'],
+  Chest: ['Chest', 'mixamorig:Chest', 'chest', 'Spine2', 'mixamorig:Spine2'],
   Head: ['Head', 'mixamorig:Head', 'head'],
-  RightLeg: ['RightUpLeg', 'mixamorig:RightUpLeg', 'RightLeg', 'mixamorig:RightLeg', 'rightUpLeg', 'rightLeg'],
-  LeftLeg: ['LeftUpLeg', 'mixamorig:LeftUpLeg', 'LeftLeg', 'mixamorig:LeftLeg', 'leftUpLeg', 'leftLeg'],
-  RightArm: ['RightUpperArm', 'mixamorig:RightUpperArm', 'RightArm', 'mixamorig:RightArm', 'rightUpperArm', 'rightArm', 'RightShoulder', 'mixamorig:RightShoulder'],
-  LeftArm: ['LeftUpperArm', 'mixamorig:LeftUpperArm', 'LeftArm', 'mixamorig:LeftArm', 'leftUpperArm', 'leftArm', 'LeftShoulder', 'mixamorig:LeftShoulder'],
+  RightLeg: ['RightUpLeg', 'mixamorig:RightUpLeg', 'rightUpLeg'],
+  RightLowerLeg: ['RightLeg', 'mixamorig:RightLeg', 'rightLeg'],
+  LeftLeg: ['LeftUpLeg', 'mixamorig:LeftUpLeg', 'leftUpLeg'],
+  LeftLowerLeg: ['LeftLeg', 'mixamorig:LeftLeg', 'leftLeg'],
+  RightArm: ['RightUpperArm', 'mixamorig:RightUpperArm', 'RightArm', 'mixamorig:RightArm', 'rightUpperArm', 'rightArm'],
+  RightLowerArm: ['RightLowerArm', 'mixamorig:RightForeArm', 'rightLowerArm', 'rightForeArm'],
+  LeftArm: ['LeftUpperArm', 'mixamorig:LeftUpperArm', 'LeftArm', 'mixamorig:LeftArm', 'leftUpperArm', 'leftArm'],
+  LeftLowerArm: ['LeftLowerArm', 'mixamorig:LeftForeArm', 'leftLowerArm', 'leftForeArm'],
 };
 
 const MATERIAL_OVERRIDES = {
@@ -332,9 +337,9 @@ export class SnowboardCharacter {
         return;
       }
 
-      // Save original bone transforms so reset() can restore them
-      for (const bone of this.boneMap.values()) {
-        this.originalBoneStates.set(bone.name, {
+      // Save original bone transforms keyed by canonical bone name so reset() can restore them
+      for (const [canonical, bone] of this.boneMap.entries()) {
+        this.originalBoneStates.set(canonical, {
           quaternion: bone.quaternion.clone(),
           position: bone.position.clone(),
         });
@@ -418,16 +423,21 @@ export class SnowboardCharacter {
 
       // Crouch / wind-up pose from jumpCharge (0..1). Targets match the
       // neutral stance exactly when jumpCharge === 0.
+      // When glbLoaded === true, Spine is a child of Hips in the bone hierarchy,
+      // so crouch is driven via Hips.position.y dip + Spine.rotation.x forward lean
+      // + leg counter-rotation without compounding Hips and Spine translations.
       const jumpCharge = Math.min(1, Math.max(0, state.jumpCharge));
       const hipsTargetY = this.baseHipsY - jumpCharge * 0.15;
-      const torsoTargetY = this.baseTorsoY - jumpCharge * 0.2;
       const torsoTargetRotX = this.baseTorsoRotX + jumpCharge * 0.3;
       const frontLegTargetX = this.baseFrontLegRotX + jumpCharge * 0.25;
       const backLegTargetX = this.baseBackLegRotX - jumpCharge * 0.2;
       const boardTargetScaleY = 1.0 + jumpCharge * 0.1;
 
       this.hips.position.y += (hipsTargetY - this.hips.position.y) * k;
-      this.torso.position.y += (torsoTargetY - this.torso.position.y) * k;
+      if (!this.glbLoaded) {
+        const torsoTargetY = this.baseTorsoY - jumpCharge * 0.2;
+        this.torso.position.y += (torsoTargetY - this.torso.position.y) * k;
+      }
       this.torso.rotation.x += (torsoTargetRotX - this.torso.rotation.x) * k;
       this.frontLeg.rotation.x += (frontLegTargetX - this.frontLeg.rotation.x) * k;
       this.backLeg.rotation.x += (backLegTargetX - this.backLeg.rotation.x) * k;

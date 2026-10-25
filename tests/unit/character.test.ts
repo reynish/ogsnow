@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import * as THREE from 'three';
 import { SnowboardCharacter } from '../../src/player/SnowboardCharacter';
 import { PlayerState } from '../../src/types';
@@ -186,5 +188,83 @@ describe('SnowboardCharacter Pose Interpolation (ADR-0008)', () => {
     expect(minScale).toBeLessThan(1.0);
     // After the squash window elapses, the rider returns to normal scale.
     expect(character.riderGroup.scale.y).toBeCloseTo(1.0, 2);
+  });
+
+  it('loads rider.glb with valid bind-space silhouette (minY >= 0.0, maxY >= 1.5, < 2000 tris), non-colliding bone aliases, and non-compounding crouch', async () => {
+    const glbPath = path.resolve(process.cwd(), 'public/assets/character/rider.glb');
+    expect(fs.existsSync(glbPath)).toBe(true);
+    const buf = fs.readFileSync(glbPath);
+    const arrayBuffer = new Uint8Array(buf).buffer;
+
+    const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+    const loader = new GLTFLoader();
+    const gltf = await new Promise<any>((resolve, reject) => {
+      loader.parse(arrayBuffer, '', resolve, reject);
+    });
+
+    // Verify skinned bounding box at bind pose spans minY >= 0.0 and maxY >= 1.5 and < 2000 triangles
+    gltf.scene.updateMatrixWorld(true);
+    const bindBox = new THREE.Box3();
+    const v = new THREE.Vector3();
+    let totalTris = 0;
+
+    gltf.scene.traverse((obj: any) => {
+      if (obj.isSkinnedMesh) {
+        const sm = obj as THREE.SkinnedMesh;
+        sm.skeleton.update();
+        const pos = sm.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          v.fromBufferAttribute(pos, i);
+          sm.applyBoneTransform(i, v);
+          v.applyMatrix4(sm.matrixWorld);
+          bindBox.expandByPoint(v);
+        }
+        totalTris += sm.geometry.index ? sm.geometry.index.count / 3 : pos.count / 3;
+      }
+    });
+
+    expect(totalTris).toBeGreaterThan(200);
+    expect(totalTris).toBeLessThan(2000);
+    expect(bindBox.min.y).toBeGreaterThanOrEqual(0.0);
+    expect(bindBox.max.y).toBeGreaterThanOrEqual(1.5);
+    // Sideways snowboard stance spans front (+0.35) and back (-0.35) bindings along Z
+    expect(bindBox.min.z).toBeLessThan(-0.35);
+    expect(bindBox.max.z).toBeGreaterThan(0.35);
+
+    // Inject parsed gltf into SnowboardCharacter via mocked GLTFLoader.prototype.loadAsync
+    const origLoadAsync = GLTFLoader.prototype.loadAsync;
+    GLTFLoader.prototype.loadAsync = async () => gltf;
+    try {
+      const glbChar = new SnowboardCharacter();
+      await new Promise((r) => setTimeout(r, 20));
+
+      const internal = glbChar as any;
+      expect(internal.glbLoaded).toBe(true);
+
+      // Verify bone aliases did not overwrite parents with children
+      expect(internal.boneMap.get('Spine')?.name).toBe('Spine');
+      expect(internal.boneMap.get('Chest')?.name).toBe('Chest');
+      expect(internal.boneMap.get('RightLeg')?.name).toBe('RightUpLeg');
+      expect(internal.boneMap.get('LeftLeg')?.name).toBe('LeftUpLeg');
+      expect(internal.boneMap.get('RightArm')?.name).toBe('RightUpperArm');
+      expect(internal.boneMap.get('LeftArm')?.name).toBe('LeftUpperArm');
+
+      // Verify hierarchical crouch dips Hips.position.y and leans Spine.rotation.x without translating Spine.position.y
+      const spineBaseY = internal.torso.position.y;
+      const hipsBaseY = internal.hips.position.y;
+      const spineBaseRotX = internal.torso.rotation.x;
+
+      glbChar.update(createMockPlayerState({ jumpCharge: 1 }), 0.1);
+      expect(internal.hips.position.y).toBeCloseTo(hipsBaseY - 0.15, 3);
+      expect(internal.torso.position.y).toBeCloseTo(spineBaseY, 5);
+      expect(internal.torso.rotation.x).toBeCloseTo(spineBaseRotX + 0.3, 3);
+
+      // Verify reset() restores original bone states using canonical bone names
+      glbChar.reset();
+      expect(internal.hips.position.y).toBeCloseTo(hipsBaseY, 5);
+      expect(internal.torso.rotation.x).toBeCloseTo(spineBaseRotX, 5);
+    } finally {
+      GLTFLoader.prototype.loadAsync = origLoadAsync;
+    }
   });
 });
